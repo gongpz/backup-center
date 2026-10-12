@@ -1,0 +1,261 @@
+/* ---------- 设计 Token（浅色主题） ---------- */
+:root {
+  /* 背景 */
+  --bc-bg-page: #f5f7fa;
+  --bc-bg-card: #ffffff;
+  --bc-bg-sidebar: #ffffff;
+  --bc-bg-header: #ffffff;
+  --bc-bg-hover: #f1f5f9;
+
+  /* 边框 */
+  --bc-border: #e5e7eb;
+  --bc-border-light: #eef0f3;
+
+  /* 文字 */
+  --bc-text-primary: #0f172a;    /* slate-900 */
+  --bc-text-regular: #334155;    /* slate-700 */
+  --bc-text-secondary: #64748b;  /* slate-500 */
+  --bc-text-placeholder: #94a3b8;/* slate-400 */
+
+  /* 侧栏（深蓝文字） */
+  --bc-sidebar-text: #1e293b;         /* slate-800 */
+  --bc-sidebar-text-hover: #0f172a;   /* slate-900 */
+  --bc-sidebar-active-bg: #eff6ff;    /* blue-50 */
+  --bc-sidebar-active-text: #2563eb;  /* blue-600 */
+
+  /* 强调色 */
+  --bc-primary: #2563eb;
+  --bc-primary-hover: #1d4ed8;
+  --bc-primary-light: #dbeafe;
+
+  /* 语义色 */
+  --bc-success: #10b981;
+  --bc-warning: #f59e0b;
+  --bc-danger:  #ef4444;
+  --bc-info:    #6366f1;
+
+  /* 圆角 */
+  --bc-radius-sm: 6px;
+  --bc-radius:    8px;
+  --bc-radius-lg: 12px;
+  --bc-radius-xl: 16px;
+
+  /* 阴影 */
+  --bc-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --bc-shadow:    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --bc-shadow-lg: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 4px 6px -2px rgba(15, 23, 42, 0.04);
+
+  /* ------- 覆盖 Element Plus 主题变量 ------- */
+  --el-color-primary: var(--bc-primary);
+  --el-color-primary-light-3: #60a5fa;
+  --el-color-primary-light-5: #93c5fd;
+  --el-color-primary-light-7: #bfdbfe;
+  --el-color-primary-light-8: #dbeafe;
+  --el-color-primary-light-9: #eff6ff;
+  --el-color-primary-dark-2:  var(--bc-primary-hover);
+
+  --el-color-success: var(--bc-success);
+  --el-color-warning: var(--bc-warning);
+  --el-color-danger:  var(--bc-danger);
+  --el-color-error:   var(--bc-danger);
+  --el-color-info:    var(--bc-info);
+
+  --el-border-radius-base: var(--bc-radius);
+  --el-border-radius-small: var(--bc-radius-sm);
+  --el-border-radius-round: 999px;
+
+  --el-text-color-primary:   var(--bc-text-primary);
+  --el-text-color-regular:   var(--bc-text-regular);
+  --el-text-color-secondary: var(--bc-text-secondary);
+  --el-text-color-placeholder: var(--bc-text-placeholder);
+
+  --el-border-color:         var(--bc-border);
+  --el-border-color-light:   var(--bc-border-light);
+  --el-border-color-lighter: var(--bc-border-light);
+
+  --el-fill-color-blank:  var(--bc-bg-card);
+  --el-bg-color:          var(--bc-bg-card);
+  --el-bg-color-page:     var(--bc-bg-page);
+}
+
+/* ---------- 深色主题 ---------- */
+html.dark {
+  --bc-bg-page: #0f172a;         /* slate-900 */
+  --bc-bg-card: #1e293b;         /* slate-800 */
+  --bc-bg-sidebar: #1e293b;
+  --bc-bg-header: #1e293b;
+  --bc-bg-hover: #334155;        /* slate-700 */
+
+  --bc-border: #334155;
+  --bc-border-light: #2d3d55;
+
+  --bc-text-primary: #f1f5f9;    /* slate-100 */
+  --bc-text-regular: #cbd5e1;    /* slate-300 */
+  --bc-text-secondary: #94a3b8;  /* slate-400 */
+  --bc-text-placeholder: #64748b;
+
+  --bc-sidebar-text: #cbd5e1;
+  --bc-sidebar-text-hover: #f1f5f9;
+  --bc-sidebar-active-bg: rgba(37, 99, 235, 0.15);
+  --bc-sidebar-active-text: #60a5fa;
+
+  --bc-primary: #3b82f6;
+  --bc-primary-hover: #60a5fa;
+  --bc-primary-light: rgba(59, 130, 246, 0.15);
+
+  --bc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --bc-shadow:    0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --bc-shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+
+  color-scheme: dark;
+}
+
+/* ---------- 基础重置 ---------- */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  color: var(--bc-text-primary);
+  background: var(--bc-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* 默认所有元素显示箭头光标 + 禁止文字选中（避免 I-beam "|" 和 caret）*/
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* 输入框：恢复文字光标 + 允许选中 */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+input:not([type]),
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+/* 需要复制的内容（备份文件名 / 命令 / 代码等），允许选中 */
+code,
+pre,
+.mono,
+.selectable,
+.cell-file,
+.token-box code,
+.cmd-box pre {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------- 通用工具类 ---------- */
+.bc-card {
+  background: var(--bc-bg-card);
+  border: 1px solid var(--bc-border-light);
+  border-radius: var(--bc-radius-lg);
+  padding: 20px;
+  box-shadow: var(--bc-shadow-sm);
+}
+
+.bc-page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--bc-text-primary);
+  margin: 0;
+}
+
+.bc-muted {
+  color: var(--bc-text-secondary);
+  font-size: 13px;
+}
+
+/* ---------- Element Plus 细调 ---------- */
+.el-card {
+  border-radius: var(--bc-radius-lg) !important;
+  border-color: var(--bc-border-light) !important;
+  box-shadow: var(--bc-shadow-sm) !important;
+}
+
+.el-button {
+  font-weight: 500;
+}
+
+/* ---------- Dialog 默认规范 ---------- */
+/* 标题栏做成"半透明背景条"：四角圆角、左右通幅（等于内容宽度） */
+.el-dialog__header {
+  margin: 20px 20px 0 !important;
+  padding: 14px 20px !important;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 10px;
+}
+html.dark .el-dialog__header {
+  background: rgba(96, 165, 250, 0.12);
+}
+.el-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.el-dialog__body {
+  padding: 20px 24px !important;
+}
+.el-dialog__footer {
+  padding: 12px 24px 32px !important;
+}
+/* X 关闭按钮：定位到 header banner 内右侧居中 */
+.el-dialog__headerbtn {
+  top: 38px !important;
+  right: 34px !important;
+}
+
+/* 对话框内的表单：max-width 520 居中，形成对称的左右留白 */
+.el-dialog .el-form {
+  max-width: 520px;
+  margin: 0 auto;
+}
+.el-dialog .el-form-item__label {
+  padding-right: 12px;
+}
+
+/* 滚动条（浅色主题） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

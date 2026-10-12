@@ -1,0 +1,24 @@
+[Unit]
+Description=Backup Center Agent
+Documentation=https://github.com/imask/backup-center
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/backup-agent/backup-agent -config /etc/backup-agent/config.json run
+Restart=always
+RestartSec=10
+User=root
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=backup-agent
+
+# 安全约束
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/backup-agent /etc/backup-agent /var/log/backup-agent /tmp
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

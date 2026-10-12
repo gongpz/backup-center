@@ -1,0 +1,359 @@
+# Backup Center · 网站备份管理中心
+
+# 一键部署文档
+
+---
+
+## 📖 简介
+
+Backup Center 是一个自托管的多服务器备份编排系统 —— 让分散在各地的服务器的备份文件，按你设定的规则，一次配置永久生效地推送到你指定的所有存储上（S3 兼容 / SFTP / WebDAV / FTP）。
+
+- **后端**：Laravel 12 + SQLite（PHP-FPM 8.2 Alpine 容器）
+- **前端**：Vue 3 + Element Plus
+- **Agent**：Go 单二进制（5 MB，跑在被监控服务器上）
+- **底层**：rclone（协议兼容层）
+- **部署**：Docker Compose 一键起
+
+---
+
+## 🖥️ 系统要求
+
+| 项 | 最低 | 推荐 |
+|---|---|---|
+| CPU | 1 核 | 2 核 |
+| 内存 | 1 GB | 2 GB |
+| 磁盘 | 15 GB | 30 GB |
+| 系统 | Debian 10+ / Ubuntu 20.04+ / 大多 Linux | Debian 11 / Ubuntu 22.04 |
+| 端口 | 80 或 80+443 | 空着 |
+| 权限 | root 或 sudo | root |
+
+**外部依赖**：无。全程自托管，不依赖任何 SaaS/云 API。
+
+---
+
+## 🚀 一条命令部署
+
+**SSH 到你的 VPS，跑这一条**：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+```
+
+脚本会**交互式引导你**做 3 个选择，然后自动完成一切：
+
+### 第 1 步 · 访问地址
+```
+? 输入你的域名或 IP: 
+```
+- 有域名的填 `bak.example.com`
+- 只有 IP 的填 `1.2.3.4`
+- 脚本自动识别是域名还是 IP
+
+### 第 2 步 · SSL 证书方式
+
+**如果第 1 步填了域名**：
+```
+? 选择 (1/2):
+  1) Let's Encrypt 免费 HTTPS  （推荐；证书自动续期，浏览器绿锁）
+  2) HTTP-only                 （无加密，只适合内网/临时/自用）
+```
+
+**如果第 1 步填了 IP**：
+```
+? 选择 (1/2):
+  1) 自签名 HTTPS   （数据加密传输，浏览器首次访问会提示证书警告，点"高级 → 继续"即可）
+  2) HTTP-only      （无加密，只适合内网/临时/自用）
+```
+
+### 第 3 步 · LE 邮箱（仅选 LE 时）
+```
+? 输入邮箱:
+```
+LE 强制要求的联系方式，用来发证书过期通知（不发广告）。随便一个能收信的邮箱即可。
+
+### 汇总确认
+脚本会打印一份汇总让你最后确认一次：
+```
+──────────  即将部署  ──────────
+  访问地址：https://bak.example.com/
+  证书模式：https-le
+  证书邮箱：you@example.com
+  安装路径：/opt/bc
+  部署源  ：...
+──────────────────────────────
+? 确认开始？(Y/n):
+```
+
+按回车（默认 Y）后自动执行安装，约 **3-6 分钟**完成。
+
+---
+
+## 📋 部署前检查清单
+
+**通用**：
+- [ ] SSH 到你的 VPS 拿到 root（或 sudo）
+- [ ] 端口 80 空着（HTTPS 模式还需 443 空）
+  ```bash
+  ss -tlnp | grep -E ':(80|443)\s'   # 应无输出
+  ```
+- [ ] 系统时间正确：`date` 显示的时间不是 1970 年
+
+**如果选域名 + LE 模式**：
+- [ ] DNS A 记录已经解析到 VPS IP（脚本会自动比对，不对 warn 20 秒才继续）
+- [ ] 云厂商安全组放行 **80 端口入站流量**（LE HTTP-01 校验走 80）
+- [ ] 有一个能收信的邮箱
+
+**如果选 IP 模式**：
+- [ ] 知道 VPS 公网 IP：`curl -4 ifconfig.me`
+
+---
+
+## ⚡ 非交互式部署（自动化用）
+
+需要在脚本里跑（比如 Ansible / Terraform），可以直接传环境变量跳过所有提问：
+
+### 域名 + LE
+```bash
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+  BC_ACCESS=bak.example.com BC_EMAIL=you@example.com sudo -E bash
+```
+
+### IP + 自签名 HTTPS
+```bash
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+  BC_ACCESS=1.2.3.4 sudo -E bash
+```
+
+### IP + HTTP-only
+```bash
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+  BC_ACCESS=1.2.3.4 BC_HTTP_ONLY=1 sudo -E bash
+```
+
+### 完整环境变量清单
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| `BC_ACCESS` | 访问地址（域名或 IP） | 交互问 |
+| `BC_EMAIL` | LE 通知邮箱（域名+LE 必填） | 交互问 |
+| `BC_HTTP_ONLY` | 设为 `1` 强制 HTTP-only | 未设 → 依 IP/域名决定 |
+| `BC_DEPLOY_URL` | 部署包下载 URL（自建镜像用） | GitHub Release |
+| `BC_FORCE` | 设为 `1` 覆盖已有安装（保留数据） | 未设 → 存在就报错 |
+
+---
+
+## ⏱️ 安装过程
+
+```
+0/7 VPS 虚拟化兼容性检查（OpenVZ 拒绝，LXC 自动切高端口）
+1/7 检查端口占用
+2/7 装 Docker（get.docker.com 官方脚本）
+3/7 拉部署包（GitHub Release，失败切备用源）
+4/7 生成证书（LE / 自签名 / 跳过，视你的选择）
+5/7 展开到 /opt/bc/，用对应的 nginx 模板
+6/7 生成 APP_KEY + 写 docker-compose 环境变量
+7/7 docker compose build + up
+   装 certbot 续期钩子（仅 LE 模式）+ 冒烟测试
+```
+
+---
+
+## 🎉 部署完成后
+
+### 访问
+
+- **域名 + LE**：https://bak.example.com/（浏览器绿锁）
+- **IP + 自签名**：https://1.2.3.4/（⚠️ 浏览器警告 → 点"高级 → 继续访问 1.2.3.4"，之后浏览器会记住 → 后续访问无警告）
+- **HTTP-only**：http://1.2.3.4/
+
+### 创建管理员
+
+首次访问时，系统检测到还没有任何用户，会引导你**设置用户名 + 密码**创建管理员账号（密码至少 8 位）。创建完成后入口自动关闭。
+
+**⚠️ 请务必记住这组凭据** —— 目前只能通过数据库重置找回。
+
+### 后续要做的事
+
+1. **改密码**（同上）
+2. **加服务器**：侧栏 → 服务器 → 添加服务器，会给你一条 curl 命令，SSH 到目标机器跑一下就装好 Agent
+3. **加存储**：侧栏 → 存储 → 添加存储，配置你的对象存储 / SFTP / WebDAV
+4. **加网站**：侧栏 → 网站 → 添加网站，指定备份目录 + 推送到哪几家存储
+
+---
+
+## 🛠️ 常用运维命令
+
+**查看容器状态**：
+```bash
+sudo docker ps
+```
+
+**查看日志**：
+```bash
+sudo docker logs -f bc-app       # PHP 后端
+sudo docker logs -f bc-web       # Nginx 前端
+```
+
+**重启服务**：
+```bash
+cd /opt/bc/deploy && sudo docker compose restart
+```
+
+**停机**：
+```bash
+cd /opt/bc/deploy && sudo docker compose down
+```
+
+**重新拉起**（不重建镜像）：
+```bash
+cd /opt/bc/deploy && sudo docker compose up -d
+```
+
+**完全清理**（会删数据）：
+```bash
+cd /opt/bc/deploy && sudo docker compose down -v && sudo rm -rf /opt/bc
+```
+
+---
+
+## 🔄 升级到新版本
+
+```bash
+# 1) 备份数据库（保险）
+sudo docker run --rm \
+    -v deploy_bc-database:/data -v /tmp:/host \
+    alpine cp /data/database.sqlite /host/bc-db-$(date +%s).bak
+
+# 2) 停容器
+cd /opt/bc/deploy && sudo docker compose down
+
+# 3) 拉最新部署包
+curl -fsSL https://github.com/imask/backup-center/releases/latest/download/bc-deploy.tar.gz -o /tmp/bc-new.tar.gz
+
+# 4) 覆盖代码
+sudo tar -xzf /tmp/bc-new.tar.gz -C /opt/bc/
+
+# 5) 重新构建镜像 + 启动
+cd /opt/bc/deploy && sudo docker compose build app && sudo docker compose up -d
+```
+
+---
+
+## 🌐 换镜像源（可选）
+
+默认从**腾讯云 COS 广州**下载（中国大陆访问快）。想用 **Cloudflare R2 免费出站**：
+
+1. Cloudflare Dashboard → R2 → `webbak` bucket → Settings → 开启 **Public Development URL**
+2. 复制拿到的 URL（形如 `https://pub-xxx.r2.dev`）
+3. 加环境变量 `BC_DEPLOY_URL`：
+
+```bash
+R2_URL="https://pub-你的hash.r2.dev"
+curl -fsSL "$R2_URL/bc-install.sh" | BC_DEPLOY_URL="$R2_URL/bc-deploy.tar.gz" sudo -E bash
+```
+
+（交互式提问部分仍然会走，只是部署包下载源换了）
+
+---
+
+## 🐛 常见问题
+
+### Q1: 一键命令报"80/443 已被占用"
+
+有别的服务占了端口。查是谁：
+```bash
+sudo ss -tlnp | grep -E ':(80|443)\s'
+```
+先停掉那个服务（比如 apache/nginx），或者交互时选 HTTP-only 模式（跳过 443）。
+
+### Q2: LE 签发证书失败
+
+- **检查 DNS**：`dig +short 你的域名` 必须返回本机公网 IP
+- **检查防火墙**：云厂商安全组必须放行 80 端口的**入站流量**（LE 校验走 80）
+- **检查限流**：LE 有每周签发次数上限，短时间反复试会被 blocked（等 1 小时或换域名）
+
+### Q3: 自签名 HTTPS 首次访问浏览器警告
+
+正常，点"**高级 → 继续访问**"即可。浏览器会记住选择，后续访问不再警告。企业环境要免警告，把 `/opt/bc/deploy/ssl/bundle.crt` 下载后加到系统信任根（Windows：`certmgr.msc` 导入到"受信任的根证书颁发机构"；macOS：Keychain → System → 拖入 → 双击 → Always Trust）。
+
+### Q4: bc-app 一直重启
+
+一般是权限或 APP_KEY 问题：
+```bash
+sudo docker logs bc-app --tail 50
+```
+需要重新跑一遍安装：
+```bash
+sudo BC_FORCE=1 bash <(curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh)
+```
+
+### Q5: 内存不够，Docker 构建时被 kill
+
+1 GB 小机可能构建期间 OOM。检查 swap：
+```bash
+free -m
+```
+如果 swap = 0，脚本应该自动加，没加成功就手动：
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && \
+sudo mkswap /swapfile && sudo swapon /swapfile && \
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### Q6: 想换域名/换 IP 怎么办
+
+原地重装即可，数据库保留：
+```bash
+# 备份数据库到 /tmp
+sudo docker exec bc-app cp /var/www/html/database/data/database.sqlite /tmp/backup.sqlite
+sudo docker cp bc-app:/tmp/backup.sqlite ~/bc-backup.sqlite
+
+# 清干净重装
+cd /opt/bc/deploy && sudo docker compose down -v && sudo rm -rf /opt/bc
+
+# 重新跑一键脚本（走交互，填新的地址）
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+
+# 恢复数据库
+sudo docker cp ~/bc-backup.sqlite bc-app:/var/www/html/database/data/database.sqlite
+sudo docker restart bc-app
+```
+
+### Q7: `.env` 里的 APP_KEY 丢了怎么办
+
+**存储的密码解不开了**。这就是为什么系统备份必须包含 `.env`。如果确实丢了 APP_KEY：
+1. 生成新 APP_KEY，写入 `/opt/bc/deploy/.env`
+2. 所有存储的密码全部作废（config 字段的密文无法解密）
+3. 手动在网页里重新填一遍每家存储的密码
+
+**教训**：登录后马上到 **设置 → 系统备份 → 立即备份**，把 SQLite + .env 打包到强制备份存储里存一份。
+
+### Q8: 一键命令没有弹交互提示
+
+如果你用 `curl | bash` 但没看到 `? 输入你的域名...` 提示，可能你在一个非交互 shell 里（比如 `screen` / 某些 CI）。**解决**：改用 `bash <(curl ...)` 或先下载再跑：
+```bash
+curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh -o /tmp/bc-install.sh
+sudo bash /tmp/bc-install.sh
+```
+
+---
+
+## 📞 支持
+
+- 部署问题：把 `sudo docker logs bc-app --tail 80` + `sudo docker logs bc-web --tail 40` 的输出发过来
+- 功能咨询：见系统内 **帮助中心** tab
+
+---
+
+## 📄 文件位置速查
+
+| 路径 | 内容 |
+|---|---|
+| `/opt/bc/` | 代码 + Docker 配置 |
+| `/opt/bc/deploy/docker-compose.yml` | 容器编排 |
+| `/opt/bc/deploy/.env` | APP_KEY（**必备份**） |
+| `/opt/bc/deploy/nginx.conf` | Nginx 配置 |
+| `/opt/bc/deploy/ssl/` | SSL 证书 |
+| Docker 卷 `deploy_bc-database` | SQLite 数据库（**必备份**） |
+| Docker 卷 `deploy_bc-storage` | Laravel storage 目录 |
+| `/etc/letsencrypt/live/<domain>/` | LE 证书原文件（仅 LE 模式） |

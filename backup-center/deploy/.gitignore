@@ -1,0 +1,6 @@
+# 敏感文件
+ssl/
+.env
+
+# 本地生成的前端构建产物
+frontend-dist/

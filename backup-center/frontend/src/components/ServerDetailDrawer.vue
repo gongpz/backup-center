@@ -1,0 +1,473 @@
+<script setup>
+import { ref, computed, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { CopyDocument, Refresh } from '@element-plus/icons-vue'
+import { serversApi } from '@/api/servers'
+
+const props = defineProps({
+  modelValue: { type: Boolean, default: false },
+  serverId: { type: Number, default: null },
+})
+const emit = defineEmits(['update:modelValue', 'refreshed'])
+
+const detail = ref(null)
+const loading = ref(false)
+
+const agentMirrorUrl = ref('')
+const agentMirrorUrlR2 = ref('')
+
+const load = async () => {
+  if (!props.serverId) return
+  loading.value = true
+  try {
+    const [d, sys] = await Promise.all([
+      serversApi.get(props.serverId),
+      (await import('@/api/settings')).systemApi.get().catch(() => ({})),
+    ])
+    detail.value = d
+    agentMirrorUrl.value = sys?.agent_mirror_url || ''
+    agentMirrorUrlR2.value = sys?.agent_mirror_url_r2 || ''
+  } finally {
+    loading.value = false
+  }
+}
+
+// 国内加速安装（走 COS mirror） —— 只在设置了 mirror 时展示
+const installCmdMirror = computed(() => {
+  if (!detail.value?.agent_token || !agentMirrorUrl.value) return ''
+  const origin = `${window.location.protocol}//${window.location.host}`
+  return `curl -fsSL ${origin}/agent/install.sh | \\
+  BC_URL="${origin}" \\
+  BC_MIRROR="${agentMirrorUrl.value}" \\
+  BC_TOKEN="${detail.value.agent_token}" \\
+  sh`
+})
+
+// 境外加速安装（走 R2 mirror） —— 只在设置了 R2 URL 时展示
+const installCmdMirrorR2 = computed(() => {
+  if (!detail.value?.agent_token || !agentMirrorUrlR2.value) return ''
+  const origin = `${window.location.protocol}//${window.location.host}`
+  return `curl -fsSL ${origin}/agent/install.sh | \\
+  BC_URL="${origin}" \\
+  BC_MIRROR="${agentMirrorUrlR2.value}" \\
+  BC_TOKEN="${detail.value.agent_token}" \\
+  sh`
+})
+
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (v) load()
+    else detail.value = null
+  },
+)
+
+// 通用安装命令（境外机器 / Center 本地 —— 走 Center 源）
+const installCmd = computed(() => {
+  if (!detail.value?.agent_token) return ''
+  const origin = `${window.location.protocol}//${window.location.host}`
+  return `curl -fsSL ${origin}/agent/install.sh | \\
+  BC_URL="${origin}" \\
+  BC_TOKEN="${detail.value.agent_token}" \\
+  sh`
+})
+
+const origin = computed(() => `${window.location.protocol}//${window.location.host}`)
+
+const copy = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制')
+  } catch (_) {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+const regenerate = () => {
+  ElMessageBox.confirm(
+    '重生后旧 Token 立即失效，已装的 Agent 需要用新 Token 重新配置。确认继续？',
+    '重生 Agent Token',
+    { type: 'warning', confirmButtonText: '重生', cancelButtonText: '取消' },
+  )
+    .then(async () => {
+      const res = await serversApi.regenerateToken(props.serverId)
+      ElMessage.success('已重生 Token')
+      await load()
+      emit('refreshed')
+    })
+    .catch(() => {})
+}
+
+const statusMap = {
+  online:  { text: '在线',  cls: 'ok' },
+  offline: { text: '离线',  cls: 'gray' },
+  pending: { text: '待连接', cls: 'warn' },
+  error:   { text: '异常',  cls: 'fail' },
+}
+
+const fmtBytes = (n) => {
+  if (n == null) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let v = Number(n), i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + ' ' + units[i]
+}
+const pctOf = (d) => {
+  if (!d?.total) return 0
+  return Math.round((Number(d.used) / Number(d.total)) * 100)
+}
+const usageClass = (d) => {
+  const p = pctOf(d)
+  if (p >= 90) return 'crit'
+  if (p >= 75) return 'warn'
+  return 'ok'
+}
+</script>
+
+<template>
+  <el-drawer
+    :model-value="modelValue"
+    title="服务器详情"
+    size="520px"
+    :close-on-click-modal="true"
+    @update:model-value="(v) => emit('update:modelValue', v)"
+  >
+    <div v-loading="loading" class="detail" v-if="detail">
+      <!-- 概要 -->
+      <div class="info-card">
+        <div class="info-head">
+          <div>
+            <div class="info-title">{{ detail.name }}</div>
+            <div class="info-sub">
+              {{ detail.connect_type === 'agent' ? 'Agent 模式' : 'SSH 模式' }} ·
+              {{ detail.os_type || '未知系统' }}
+              {{ detail.ip ? ` · ${detail.ip}` : '' }}
+            </div>
+          </div>
+          <span :class="['badge', statusMap[detail.status]?.cls]">
+            {{ statusMap[detail.status]?.text }}
+          </span>
+        </div>
+        <div v-if="detail.remark" class="remark">{{ detail.remark }}</div>
+      </div>
+
+      <!-- Agent 信息 -->
+      <template v-if="detail.connect_type === 'agent'">
+        <div class="section-title">Agent 信息</div>
+        <div class="kv-grid">
+          <div class="kv"><div class="k">Agent 版本</div><div class="v">{{ detail.agent_version || '—' }}</div></div>
+          <div class="kv"><div class="k">主机名</div><div class="v">{{ detail.hostname || '—' }}</div></div>
+          <div class="kv"><div class="k">内核</div><div class="v">{{ detail.kernel || '—' }}</div></div>
+          <div class="kv"><div class="k">架构</div><div class="v">{{ detail.arch || '—' }}</div></div>
+          <div class="kv"><div class="k">CPU</div><div class="v">{{ detail.cpu_usage ?? '—' }}%</div></div>
+          <div class="kv"><div class="k">内存</div><div class="v">{{ detail.mem_usage ?? '—' }}%</div></div>
+          <div class="kv"><div class="k">根分区</div><div class="v">{{ detail.disk_usage ?? '—' }}%</div></div>
+          <div class="kv"><div class="k">最后心跳</div><div class="v">{{ detail.last_seen_at ? new Date(detail.last_seen_at).toLocaleString() : '—' }}</div></div>
+        </div>
+
+        <!-- 磁盘分区列表（v0.6+ Agent 上报） -->
+        <template v-if="detail.disks?.length">
+          <div class="section-title">
+            磁盘分区
+            <span class="hint">{{ detail.disks.length }} 个</span>
+          </div>
+          <div class="disks">
+            <div v-for="d in detail.disks" :key="d.mount" class="disk">
+              <div class="disk-head">
+                <span class="disk-mount">{{ d.mount }}</span>
+                <span class="disk-fs">{{ d.fs }}</span>
+                <span class="disk-usage" :class="usageClass(d)">{{ pctOf(d) }}%</span>
+              </div>
+              <div class="disk-bar">
+                <div class="disk-bar-fill" :class="usageClass(d)" :style="{ width: pctOf(d) + '%' }"></div>
+              </div>
+              <div class="disk-sub">
+                已用 {{ fmtBytes(d.used) }} / 总 {{ fmtBytes(d.total) }} · 剩余 {{ fmtBytes(d.available) }}
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Token -->
+        <div class="section-title">
+          Agent Token
+          <el-button type="danger" size="small" text @click="regenerate">
+            <el-icon><Refresh /></el-icon>
+            重生 Token
+          </el-button>
+        </div>
+        <div class="token-box">
+          <code>{{ detail.agent_token }}</code>
+          <el-button size="small" text @click="copy(detail.agent_token)">
+            <el-icon><CopyDocument /></el-icon>
+            复制
+          </el-button>
+        </div>
+
+        <!-- 安装命令：国内 mirror 优先展示（有配置时），后面跟通用版 -->
+        <div class="section-title">
+          安装命令
+          <span class="hint">在目标服务器上以 root 执行 · 按机器所在地选一个</span>
+        </div>
+
+        <div v-if="installCmdMirror" class="cmd-block">
+          <div class="cmd-label">
+            <span class="chip chip-red">🇨🇳 国内加速版（COS）</span>
+            <span class="cmd-hint">大陆机器用这个（走你配的 Agent 镜像池，通常是腾讯云 COS）</span>
+          </div>
+          <div class="cmd-box">
+            <pre>{{ installCmdMirror }}</pre>
+            <el-button size="small" text @click="copy(installCmdMirror)">
+              <el-icon><CopyDocument /></el-icon>
+              复制
+            </el-button>
+          </div>
+        </div>
+
+        <div v-if="installCmdMirrorR2" class="cmd-block">
+          <div class="cmd-label">
+            <span class="chip chip-purple">🌐 境外加速版（R2）</span>
+            <span class="cmd-hint">境外机器/分发给他人用（走 Cloudflare R2，免费出站）</span>
+          </div>
+          <div class="cmd-box">
+            <pre>{{ installCmdMirrorR2 }}</pre>
+            <el-button size="small" text @click="copy(installCmdMirrorR2)">
+              <el-icon><CopyDocument /></el-icon>
+              复制
+            </el-button>
+          </div>
+        </div>
+
+        <div class="cmd-block">
+          <div class="cmd-label">
+            <span class="chip chip-blue">🌍 通用版</span>
+            <span class="cmd-hint">无 CDN 时用（走 Center 源，跨海慢）</span>
+          </div>
+          <div class="cmd-box">
+            <pre>{{ installCmd }}</pre>
+            <el-button size="small" text @click="copy(installCmd)">
+              <el-icon><CopyDocument /></el-icon>
+              复制
+            </el-button>
+          </div>
+        </div>
+
+      </template>
+
+      <!-- SSH 信息 -->
+      <template v-else>
+        <div class="section-title">SSH 配置</div>
+        <div class="kv-grid">
+          <div class="kv"><div class="k">IP</div><div class="v">{{ detail.ip || '—' }}</div></div>
+          <div class="kv"><div class="k">端口</div><div class="v">{{ detail.ssh_port }}</div></div>
+          <div class="kv"><div class="k">用户</div><div class="v">{{ detail.ssh_user || '—' }}</div></div>
+          <div class="kv"><div class="k">私钥</div><div class="v">{{ detail.has_ssh_key ? '已配置' : '未配置' }}</div></div>
+          <div class="kv kv-full"><div class="k">备份目录</div><div class="v">{{ detail.backup_path || '—' }}</div></div>
+        </div>
+      </template>
+    </div>
+  </el-drawer>
+</template>
+
+<style scoped>
+.detail { padding: 4px; }
+
+.info-card {
+  background: var(--bc-bg-page);
+  border-radius: var(--bc-radius-lg);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.info-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.info-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--bc-text-primary);
+}
+.info-sub {
+  font-size: 12px;
+  color: var(--bc-text-secondary);
+  margin-top: 4px;
+}
+.remark {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bc-border-light);
+  font-size: 13px;
+  color: var(--bc-text-regular);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bc-text-primary);
+  margin: 20px 0 10px;
+}
+.section-title .hint {
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--bc-text-secondary);
+}
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+}
+.kv-full { grid-column: 1 / -1; }
+.kv .k { font-size: 12px; color: var(--bc-text-secondary); margin-bottom: 2px; }
+.kv .v { font-size: 13px; color: var(--bc-text-primary); font-weight: 500; word-break: break-all; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+.badge.warn { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+.cmd-block {
+  margin-bottom: 12px;
+}
+.cmd-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.cmd-hint {
+  font-size: 11px;
+  color: var(--bc-text-secondary);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.chip-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
+.chip-red    { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.chip-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.token-box, .cmd-box {
+  background: var(--bc-bg-page);
+  border: 1px solid var(--bc-border-light);
+  border-radius: var(--bc-radius);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.token-box code {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--bc-text-primary);
+  word-break: break-all;
+  flex: 1;
+}
+.cmd-box pre {
+  margin: 0;
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--bc-text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex: 1;
+  line-height: 1.6;
+}
+
+/* removed */
+.__unused__ {
+  display: none;
+  user-select: all;
+}
+
+/* 磁盘分区 */
+.disks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.disk {
+  border: 1px solid var(--bc-border-light);
+  border-radius: var(--bc-radius);
+  padding: 10px 12px;
+  background: var(--bc-bg-page);
+}
+.disk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.disk-mount {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bc-text-primary);
+  flex: 1;
+  word-break: break-all;
+}
+.disk-fs {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ffffff;
+  border: 1px solid var(--bc-border-light);
+  color: var(--bc-text-secondary);
+  flex-shrink: 0;
+}
+.disk-usage {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 42px;
+  text-align: right;
+}
+.disk-usage.ok   { color: #059669; }
+.disk-usage.warn { color: #d97706; }
+.disk-usage.crit { color: #dc2626; }
+
+.disk-bar {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.disk-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width .2s;
+}
+.disk-bar-fill.ok   { background: #10b981; }
+.disk-bar-fill.warn { background: #f59e0b; }
+.disk-bar-fill.crit { background: #ef4444; }
+
+.disk-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--bc-text-secondary);
+}
+</style>

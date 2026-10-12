@@ -1,0 +1,52 @@
+# ---------- 本地私有资产（不入库）----------
+private/
+.workbuddy/
+
+# ---------- 密钥与凭证 ----------
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.zip
+.env
+.env.*
+!.env.example
+!.env.ci
+
+# ---------- 数据库（含真实生产数据）----------
+*.sqlite
+*.sqlite-journal
+*.db
+backup-center/backend/database/data/
+
+# ---------- SSL ----------
+ssl/
+ssl证书/
+
+# ---------- 依赖 ----------
+node_modules/
+vendor/
+
+# ---------- 构建产物 ----------
+dist/
+frontend-dist/
+agent-dist/
+*.tar.gz
+
+# ---------- 框架缓存 / 日志 ----------
+backup-center/backend/storage/framework/cache/*
+backup-center/backend/storage/framework/sessions/*
+backup-center/backend/storage/framework/testing/*
+backup-center/backend/storage/framework/views/*
+backup-center/backend/storage/logs/*
+!backup-center/backend/storage/*/.gitignore
+backup-center/backend/bootstrap/cache/*.php
+
+# ---------- 编辑器 / 系统 ----------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log

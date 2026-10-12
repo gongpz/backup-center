@@ -1,0 +1,516 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/imask/backup-agent/internal/client"
+	"github.com/imask/backup-agent/internal/config"
+	"github.com/imask/backup-agent/internal/scanner"
+	"github.com/imask/backup-agent/internal/sysinfo"
+	"github.com/imask/backup-agent/internal/uploader"
+)
+
+const AgentVersion = "0.14.0"
+
+// runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
+var runtimeConfigPath string
+
+const rcloneConfPath = "/etc/backup-agent/rclone.conf"
+
+func main() {
+	var (
+		configPath = flag.String("config", "/etc/backup-agent/config.json", "配置文件路径")
+		verbose    = flag.Bool("v", false, "详细日志（debug 级别）")
+		force      = flag.Bool("f", false, "配合 update 使用：强制升级（即使版本相同）")
+	)
+	flag.Parse()
+
+	logLevel := slog.LevelInfo
+	if *verbose {
+		logLevel = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
+
+	args := flag.Args()
+	if len(args) == 0 {
+		args = []string{"run"}
+	}
+
+	switch args[0] {
+	case "run":
+		cmdRun(*configPath)
+	case "test":
+		cmdTest(*configPath)
+	case "update":
+		cmdUpdate(*configPath, *force)
+	case "version":
+		fmt.Printf("backup-agent v%s\n", AgentVersion)
+	default:
+		fmt.Fprintf(os.Stderr, "用法: backup-agent [-config PATH] [-f] [run|test|update|version]\n")
+		os.Exit(2)
+	}
+}
+
+func cmdRun(configPath string) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		slog.Error("加载配置失败", "err", err)
+		os.Exit(1)
+	}
+	runtimeConfigPath = configPath
+
+	c := client.New(cfg.CenterURL, cfg.AgentToken, AgentVersion)
+
+	// ---------- 注册（失败重试） ----------
+	var regResp *client.RegisterResponse
+	for attempt := 0; ; attempt++ {
+		info := sysinfo.Basic()
+		slog.Info("向 Center 注册", "url", cfg.CenterURL, "hostname", info.Hostname, "attempt", attempt+1)
+		resp, err := c.Register(info)
+		if err == nil {
+			slog.Info("注册成功", "server_id", resp.ServerID, "server_name", resp.ServerName)
+			regResp = resp
+			break
+		}
+		slog.Warn("注册失败，将重试", "err", err)
+		if client.IsAuthError(err) {
+			slog.Error("Token 无效，退出")
+			os.Exit(3)
+		}
+		time.Sleep(backoff(attempt))
+	}
+
+	heartbeatInterval := durSecs(regResp.Config.HeartbeatInterval, 60)
+	websiteRefreshInterval := durSecs(regResp.Config.WebsiteRefreshInterval, 300)
+	scanInterval := durSecs(regResp.Config.ScanInterval, 120)
+
+	up := uploader.New(c, rcloneConfPath)
+	scn := scanner.New(c, up)
+
+	// 首次拉网站+存储列表
+	if data, err := c.WebsitesFull(); err != nil {
+		slog.Warn("首次拉网站列表失败", "err", err)
+	} else {
+		if err := up.UpdateStorages(data.Storages); err != nil {
+			slog.Warn("首次生成 rclone 配置失败", "err", err)
+		}
+		scn.SetWebsites(data.Websites)
+		slog.Info("加载配置", "websites", len(data.Websites), "storages", len(data.Storages))
+	}
+
+	// ---------- 信号 / context ----------
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		s := <-sig
+		slog.Info("收到停止信号", "signal", s.String())
+		cancel()
+	}()
+
+	// ---------- 三个 goroutine ----------
+	var wg sync.WaitGroup
+
+	// 心跳
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		doHeartbeat(c, cfg, scn)
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				doHeartbeat(c, cfg, scn)
+			}
+		}
+	}()
+
+	// 定期刷新网站列表
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(websiteRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refreshWebsites(c, scn, up)
+			}
+		}
+	}()
+
+	// 定期扫描目录 + 上报
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// 启动 5 秒后先扫一次
+		time.Sleep(5 * time.Second)
+		scn.ScanAll()
+		ticker := time.NewTicker(scanInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				scn.ScanAll()
+			}
+		}
+	}()
+
+	slog.Info("Agent 已启动",
+		"heartbeat", heartbeatInterval,
+		"website_refresh", websiteRefreshInterval,
+		"scan", scanInterval,
+	)
+
+	<-ctx.Done()
+	wg.Wait()
+	slog.Info("Agent 已退出")
+}
+
+func doHeartbeat(c *client.Client, cfg *config.Config, scn *scanner.Scanner) {
+	metrics := sysinfo.Collect()
+	resp, err := c.Heartbeat(metrics)
+	if err != nil {
+		if client.IsAuthError(err) {
+			slog.Error("心跳失败: Token 无效", "err", err)
+			return
+		}
+		slog.Warn("心跳失败", "err", err)
+		return
+	}
+	slog.Debug("心跳成功", "cpu", metrics.CPU, "mem", metrics.Memory, "disk", metrics.Disk)
+
+	// Center 下发的 mirror URL 跟本地 config 不一致 → 更新 config（in-memory + 回写文件）
+	if resp != nil && resp.AgentMirrorURL != cfg.MirrorURL {
+		oldMirror := cfg.MirrorURL
+		cfg.MirrorURL = resp.AgentMirrorURL
+		if runtimeConfigPath != "" {
+			if err := config.Save(runtimeConfigPath, cfg); err != nil {
+				slog.Warn("回写 mirror 到 config 失败", "err", err)
+			} else {
+				slog.Info("mirror URL 已更新", "old", oldMirror, "new", cfg.MirrorURL)
+			}
+		}
+	}
+
+	if resp != nil && resp.PendingCommand != nil {
+		go handleAgentCommand(resp.PendingCommand, cfg, c, scn)
+	}
+}
+
+func refreshWebsites(c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) {
+	data, err := c.WebsitesFull()
+	if err != nil {
+		slog.Warn("刷新网站列表失败", "err", err)
+		return
+	}
+	if err := up.UpdateStorages(data.Storages); err != nil {
+		slog.Warn("更新 rclone 配置失败", "err", err)
+	}
+	scn.SetWebsites(data.Websites)
+	slog.Debug("刷新配置", "websites", len(data.Websites), "storages", len(data.Storages))
+}
+
+// cmdUpdate 是终端手动触发的入口：走 performUpdate，然后打印结果并 exit。
+func cmdUpdate(configPath string, force bool) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读配置失败: %v\n", err)
+		os.Exit(1)
+	}
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "错误: update 需要 root 权限")
+		os.Exit(1)
+	}
+	output, err := performUpdate(cfg, force, true)
+	fmt.Print(output)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// performUpdate 下载新二进制 + 校验，再触发 detachedRestart 交给独立进程去做 stop/rename/start。
+// 返回成功时，独立进程已 dispatch，父 Agent 可以正常返回；~1-2 秒后父 Agent 会被 systemctl 停掉。
+// interactive=true：终端手动触发（cmdUpdate），可以同步走 stop/rename/start（因为调用方不是 daemon）
+// interactive=false：daemon 内触发（handleAgentCommand），必须走 detached，否则 daemon 自己 stop 自己会连带杀死本进程
+func performUpdate(cfg *config.Config, force bool, interactive bool) (string, error) {
+	var log strings.Builder
+	logf := func(f string, a ...any) { fmt.Fprintf(&log, f+"\n", a...) }
+
+	var arch string
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+		arch = runtime.GOARCH
+	default:
+		return log.String(), fmt.Errorf("不支持的架构: %s", runtime.GOARCH)
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		return log.String(), fmt.Errorf("无法定位自身二进制: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	tmpPath := self + ".new"
+
+	// 下载源优先级：cfg.MirrorURL > cfg.CenterURL/agent/
+	// 如果 mirror 下载失败，自动回退到 Center 源
+	centerURL := strings.TrimRight(cfg.CenterURL, "/") + "/agent/backup-agent-linux-" + arch
+	var downloadErr error
+	if cfg.MirrorURL != "" {
+		mirrorURL := strings.TrimRight(cfg.MirrorURL, "/") + "/backup-agent-linux-" + arch
+		logf("下载(mirror): %s", mirrorURL)
+		if err := downloadFile(mirrorURL, tmpPath); err != nil {
+			logf("mirror 下载失败: %v → 回退到 Center 源", err)
+			_ = os.Remove(tmpPath)
+			logf("下载(center): %s", centerURL)
+			downloadErr = downloadFile(centerURL, tmpPath)
+		}
+	} else {
+		logf("下载: %s", centerURL)
+		downloadErr = downloadFile(centerURL, tmpPath)
+	}
+	if downloadErr != nil {
+		_ = os.Remove(tmpPath)
+		return log.String(), fmt.Errorf("下载失败: %w", downloadErr)
+	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		_ = os.Remove(tmpPath)
+		return log.String(), fmt.Errorf("chmod 失败: %w", err)
+	}
+
+	newVersion, err := probeVersion(tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return log.String(), fmt.Errorf("新二进制无法运行: %w", err)
+	}
+	logf("当前版本: v%s，新版本: v%s", AgentVersion, newVersion)
+
+	if newVersion == AgentVersion && !force {
+		logf("已是最新版本，无需升级（用 -f 强制升级）")
+		_ = os.Remove(tmpPath)
+		return log.String(), nil
+	}
+
+	if interactive {
+		return interactiveSwap(self, tmpPath, newVersion, &log, logf)
+	}
+	return detachedSwap(self, tmpPath, newVersion, &log, logf)
+}
+
+// interactiveSwap 终端命令模式：调用方不是被管理的 daemon，可以直接 stop → rename → start
+func interactiveSwap(self, tmpPath, newVersion string, log *strings.Builder, logf func(string, ...any)) (string, error) {
+	hasSystemctl := true
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		hasSystemctl = false
+	}
+	if hasSystemctl {
+		logf("停止 backup-agent 服务...")
+		if out, err := exec.Command("systemctl", "stop", "backup-agent").CombinedOutput(); err != nil {
+			logf("systemctl stop 失败: %v (%s) — 若非 systemd 托管可忽略", err, strings.TrimSpace(string(out)))
+		}
+	}
+	if err := os.Rename(tmpPath, self); err != nil {
+		if hasSystemctl {
+			_ = exec.Command("systemctl", "start", "backup-agent").Run()
+		}
+		return log.String(), fmt.Errorf("替换二进制失败: %w", err)
+	}
+	if hasSystemctl {
+		logf("启动 backup-agent 服务...")
+		if out, err := exec.Command("systemctl", "start", "backup-agent").CombinedOutput(); err != nil {
+			return log.String(), fmt.Errorf("systemctl start 失败: %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+	logf("✅ 升级完成: v%s → v%s", AgentVersion, newVersion)
+	return log.String(), nil
+}
+
+// detachedSwap daemon 模式：不能让 daemon 自己 stop 自己（SIGTERM 会杀掉当前 update goroutine 所在的进程）。
+// 用 systemd-run 创建独立 transient unit，在 backup-agent.service 的 cgroup 之外执行 stop→rename→start。
+// 父进程立即返回，~1-2 秒后被独立 unit 停掉。
+func detachedSwap(self, tmpPath, newVersion string, log *strings.Builder, logf func(string, ...any)) (string, error) {
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		return log.String(), fmt.Errorf("daemon 模式升级需要 systemd-run，未找到: %w", err)
+	}
+
+	// on-active=2s 给父进程一点时间返回响应和记录日志
+	// --collect 让 transient unit 完成后自动清理，不留残余
+	// unit 名带 pid 避免撞名
+	unitName := fmt.Sprintf("bc-agent-upgrade-%d", os.Getpid())
+	swapCmd := fmt.Sprintf(
+		"sleep 2 && systemctl stop backup-agent && mv %s %s && systemctl start backup-agent",
+		shellQuote(tmpPath), shellQuote(self),
+	)
+	logf("触发独立 transient unit 完成 stop→rename→start: %s", unitName)
+	cmd := exec.Command("systemd-run",
+		"--unit="+unitName,
+		"--on-active=2",
+		"--timer-property=AccuracySec=100ms",
+		"--collect",
+		"--description=Backup Agent Upgrade",
+		"/bin/sh", "-c", swapCmd,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(tmpPath)
+		return log.String(), fmt.Errorf("systemd-run 失败: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	logf("✅ 升级已排队: v%s → v%s（Agent 将在 ~2 秒后被独立进程停止并替换）", AgentVersion, newVersion)
+	return log.String(), nil
+}
+
+func shellQuote(s string) string {
+	// 简易 shell 单引号转义，覆盖典型路径。performUpdate 里的路径来自 os.Executable + ".new"，不含奇怪字符。
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// handleAgentCommand 处理心跳里收到的一条指令。成功不 report（Center 靠 version 变化自判 for update）；
+// 一般命令走 CommandResult 汇报。
+func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *client.Client, scn *scanner.Scanner) {
+	if cmd == nil {
+		return
+	}
+	slog.Info("收到指令", "id", cmd.ID, "type", cmd.Type)
+	switch cmd.Type {
+	case "update":
+		output, err := performUpdate(cfg, true, false)
+		if err != nil {
+			slog.Warn("升级失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Output:    output,
+				Error:     err.Error(),
+			})
+			return
+		}
+		slog.Info("升级已排队等待独立进程接管", "id", cmd.ID, "output", output)
+
+	case "sync_now":
+		// 一键同步：立即扫全部网站的 backup_paths，未上传的文件走上传队列
+		if scn == nil {
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Error:     "scanner 未初始化",
+			})
+			return
+		}
+		start := time.Now()
+		slog.Info("触发一键同步扫描（强制清 seen map，全量重扫，含 scheduled 网站）", "id", cmd.ID)
+		scn.ClearSeen()
+		scn.ForceScanAll()
+		took := time.Since(start)
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "success",
+			Output:    fmt.Sprintf("已完成一次全量扫描，用时 %.2fs", took.Seconds()),
+		})
+
+	default:
+		slog.Warn("未知指令类型，忽略", "type", cmd.Type, "id", cmd.ID)
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "failed",
+			Error:     "未支持的指令类型: " + cmd.Type,
+		})
+	}
+}
+
+func downloadFile(url, dest string) error {
+	// 30 分钟：跨洲下载 5-10 MB 二进制在慢线路（中欧之间）需要更长 timeout。
+	// 5MB @ 3KB/s = 28 分钟，加冗余。
+	c := &http.Client{Timeout: 30 * time.Minute}
+	resp, err := c.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %s", resp.Status)
+	}
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return err
+	}
+	return nil
+}
+
+func probeVersion(path string) (string, error) {
+	out, err := exec.Command(path, "version").Output()
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(out))
+	const prefix = "backup-agent v"
+	if !strings.HasPrefix(s, prefix) {
+		return "", fmt.Errorf("意外输出: %q", s)
+	}
+	return strings.TrimPrefix(s, prefix), nil
+}
+
+func cmdTest(configPath string) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "读配置失败: %v\n", err)
+		os.Exit(1)
+	}
+	c := client.New(cfg.CenterURL, cfg.AgentToken, AgentVersion)
+	info := sysinfo.Basic()
+	resp, err := c.Register(info)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "连接测试失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("连接 OK — server_id=%d server_name=%s\n", resp.ServerID, resp.ServerName)
+}
+
+func durSecs(sec, defaultSec int) time.Duration {
+	if sec <= 0 {
+		sec = defaultSec
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func backoff(attempt int) time.Duration {
+	d := time.Duration(1<<uint(min(attempt, 8))) * time.Second
+	if d > 5*time.Minute {
+		d = 5 * time.Minute
+	}
+	return d
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
