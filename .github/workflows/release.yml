@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建部署包
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backup-center/frontend/package-lock.json
+
+      - name: 准备 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: 构建 bc-deploy.tar.gz
+        run: bash scripts/build-release.sh
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bc-deploy.tar.gz
+          generate_release_notes: true

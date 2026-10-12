@@ -105,13 +105,41 @@ docs/            产品与部署文档
 
 ## 开发
 
-环境要求：Node.js ≥ 20、PHP ≥ 8.2 + Composer 2、Go ≥ 1.23、Docker + Docker Compose。
+环境要求：Node.js ≥ 20、PHP ≥ 8.2 + Composer 2、Go ≥ 1.22、Docker + Docker Compose。
 
 ```bash
 cd backup-center/frontend && npm run dev     # 前端开发模式
 cd backup-center/backend && php artisan serve # 后端
 cd backup-center/agent && GOOS=linux GOARCH=amd64 go build -o backup-agent ./
 ```
+
+---
+
+## 构建部署包 / 发布
+
+一键部署脚本从 GitHub Release 拉取 `bc-deploy.tar.gz`，包内结构如下（解压到 `/opt/bc`）：
+
+```
+backend/                    Laravel 后端源码
+deploy/                     docker-compose + nginx 模板
+deploy/frontend-dist/       前端构建产物
+deploy/agent-dist/          Agent 二进制（linux amd64 / arm64）
+```
+
+**推荐走 GitHub Actions** —— 打 tag 即自动构建并挂到 Release：
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+也可以本地构建（需 Node + Go）：
+
+```bash
+bash scripts/build-release.sh          # 产出 ./bc-deploy.tar.gz
+SKIP_AGENT=1 bash scripts/build-release.sh   # 不重编 Agent，复用已有 deploy/agent-dist
+```
+
+然后手动上传到 Release 页面即可。
 
 ---
 
