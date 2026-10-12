@@ -28,7 +28,7 @@
 在一台干净的 VPS 上（KVM / XEN 虚拟化，root 权限）跑：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash
 ```
 
 脚本会交互式询问访问地址、证书方式、端口，然后自动完成：虚拟化兼容检查 → 装 Docker → 拉部署包 → 签证书 → 起容器 → 配置续期钩子 → 冒烟测试。
@@ -55,7 +55,7 @@ curl -fsSL .../bc-install.sh | BC_ACCESS=bak.example.com BC_EMAIL=you@example.co
 ### 方式二 · 手动部署
 
 ```bash
-git clone https://github.com/imask/backup-center.git
+git clone https://github.com/gongpz/backup-center.git
 cd backup-center/backup-center
 
 # 后端
@@ -118,7 +118,7 @@ cd backup-center/agent && GOOS=linux GOARCH=amd64 go build -o backup-agent ./
 ## 卸载
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash
 ```
 
 交互式逐项确认，默认保留数据库、SSL 证书等资产，不会动 Docker 本身。

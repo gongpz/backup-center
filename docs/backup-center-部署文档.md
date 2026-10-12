@@ -36,7 +36,7 @@ Backup Center 是一个自托管的多服务器备份编排系统 —— 让分�
 **SSH 到你的 VPS，跑这一条**：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash
 ```
 
 脚本会**交互式引导你**做 3 个选择，然后自动完成一切：
@@ -114,19 +114,19 @@ LE 强制要求的联系方式，用来发证书过期通知（不发广告）�
 
 ### 域名 + LE
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | \
   BC_ACCESS=bak.example.com BC_EMAIL=you@example.com sudo -E bash
 ```
 
 ### IP + 自签名 HTTPS
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | \
   BC_ACCESS=1.2.3.4 sudo -E bash
 ```
 
 ### IP + HTTP-only
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | \
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | \
   BC_ACCESS=1.2.3.4 BC_HTTP_ONLY=1 sudo -E bash
 ```
 
@@ -228,7 +228,7 @@ sudo docker run --rm \
 cd /opt/bc/deploy && sudo docker compose down
 
 # 3) 拉最新部署包
-curl -fsSL https://github.com/imask/backup-center/releases/latest/download/bc-deploy.tar.gz -o /tmp/bc-new.tar.gz
+curl -fsSL https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz -o /tmp/bc-new.tar.gz
 
 # 4) 覆盖代码
 sudo tar -xzf /tmp/bc-new.tar.gz -C /opt/bc/
@@ -284,7 +284,7 @@ sudo docker logs bc-app --tail 50
 ```
 需要重新跑一遍安装：
 ```bash
-sudo BC_FORCE=1 bash <(curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh)
+sudo BC_FORCE=1 bash <(curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh)
 ```
 
 ### Q5: 内存不够，Docker 构建时被 kill
@@ -312,7 +312,7 @@ sudo docker cp bc-app:/tmp/backup.sqlite ~/bc-backup.sqlite
 cd /opt/bc/deploy && sudo docker compose down -v && sudo rm -rf /opt/bc
 
 # 重新跑一键脚本（走交互，填新的地址）
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash
 
 # 恢复数据库
 sudo docker cp ~/bc-backup.sqlite bc-app:/var/www/html/database/data/database.sqlite
@@ -332,7 +332,7 @@ sudo docker restart bc-app
 
 如果你用 `curl | bash` 但没看到 `? 输入你的域名...` 提示，可能你在一个非交互 shell 里（比如 `screen` / 某些 CI）。**解决**：改用 `bash <(curl ...)` 或先下载再跑：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh -o /tmp/bc-install.sh
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh -o /tmp/bc-install.sh
 sudo bash /tmp/bc-install.sh
 ```
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imask/backup-agent/internal/client"
+	"github.com/gongpz/backup-center/agent/internal/client"
 )
 
 // UploadDispatcher 是 Uploader 需实现的接口（避免循环依赖）

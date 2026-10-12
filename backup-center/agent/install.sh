@@ -108,7 +108,7 @@ fi
 cat > "$UNIT_FILE" <<'EOF'
 [Unit]
 Description=Backup Center Agent
-Documentation=https://github.com/imask/backup-center
+Documentation=https://github.com/gongpz/backup-center
 After=network-online.target
 Wants=network-online.target
 

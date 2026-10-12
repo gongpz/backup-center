@@ -2,7 +2,7 @@
 # Backup Center · 一键交互式部署脚本
 #
 # 使用（一条命令，自动交互式提问）：
-#   curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash
 #
 # 也可用环境变量跳过交互（用于自动化）：
 #   curl -fsSL ... | BC_ACCESS=xxx BC_EMAIL=xxx BC_HTTP_ONLY=1 sudo -E bash
@@ -10,11 +10,14 @@
 # 想用自建镜像源拉部署包：
 #   curl -fsSL ... | BC_DEPLOY_URL=https://mirror.example.com/bc-deploy.tar.gz sudo -E bash
 #
+# 备用源可选（主源失败时才尝试，默认关闭）：
+#   curl -fsSL ... | BC_DEPLOY_URL_FALLBACK=https://mirror2.example.com/bc-deploy.tar.gz sudo -E bash
+#
 set -euo pipefail
 
 # ---------- 配置 ----------
-DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/imask/backup-center/releases/latest/download/bc-deploy.tar.gz}"
-DEPLOY_URL_FALLBACK="https://github.com/imask/backup-center/releases/latest/download/bc-deploy.tar.gz"
+DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz}"
+DEPLOY_URL_FALLBACK="${BC_DEPLOY_URL_FALLBACK:-}"
 TARGET_DIR="/opt/bc"
 
 # 端口默认值（必须在这里初始化：LXC 兼容检测会引用，set -u 下未定义会直接退出）
@@ -291,14 +294,18 @@ docker compose version >/dev/null 2>&1 || die "Docker Compose 插件缺失"
 # ---------- 3) 拉部署包 ----------
 log "3/7 拉部署包"
 mkdir -p /tmp/bc-download
-if curl -fsSL --max-time 90 "$DEPLOY_URL_PRIMARY" -o /tmp/bc-download/bc-deploy.tar.gz; then
-    log "  ✓ 主源 OK: $DEPLOY_URL_PRIMARY"
-elif curl -fsSL --max-time 120 "$DEPLOY_URL_FALLBACK" -o /tmp/bc-download/bc-deploy.tar.gz; then
-    log "  ✓ 备源 OK: $DEPLOY_URL_FALLBACK"
-else
-    die "两个源都拉不到部署包（主：$DEPLOY_URL_PRIMARY / 备：$DEPLOY_URL_FALLBACK）"
+got_pkg=0
+for u in "$DEPLOY_URL_PRIMARY" ${DEPLOY_URL_FALLBACK:+"$DEPLOY_URL_FALLBACK"}; do
+    if curl -fsSL --max-time 90 "$u" -o /tmp/bc-download/bc-deploy.tar.gz && [ -s /tmp/bc-download/bc-deploy.tar.gz ]; then
+        log "  ✓ 下载 OK: $u"
+        got_pkg=1
+        break
+    fi
+    log "  ✗ 失败: $u"
+done
+if [ "$got_pkg" != "1" ]; then
+    die "拉不到部署包（源：$DEPLOY_URL_PRIMARY${DEPLOY_URL_FALLBACK:+ / $DEPLOY_URL_FALLBACK}）。可用 BC_DEPLOY_URL 指定自建镜像源。"
 fi
-[ -s /tmp/bc-download/bc-deploy.tar.gz ] || die "0 字节文件"
 
 # ---------- 4) 证书 ----------
 mkdir -p "$TARGET_DIR/deploy/ssl"

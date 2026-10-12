@@ -1,3 +1,3 @@
-module github.com/imask/backup-agent
+module github.com/gongpz/backup-center/agent
 
 go 1.22

@@ -2,7 +2,7 @@
 # Backup Center · 一键卸载脚本
 #
 # 使用：
-#   curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash
 #
 # 环境变量：
 #   BC_KEEP_DATA=1       保留数据库 + storage 卷（默认清除）
@@ -234,7 +234,7 @@ printf "${C_GRN}═════════════════════�
 echo ""
 [ "${KEEP_DATA:-0}" = "1" ] && echo "  数据卷已保留：$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '^deploy_bc-' | tr '\n' ' ')"
 [ "${REMOVE_LE:-0}" = "1" ]  || [ "$HAS_LE" = "1" ] && echo "  LE 证书保留在 /etc/letsencrypt/live/$DOMAIN/"
-echo "  想重装：curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash"
+echo "  想重装：curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash"
 echo ""
 echo "  Docker 本身没卸载（可能你别的东西还在用）。要清 Docker："
 echo "    apt purge -y docker-ce docker-ce-cli containerd.io  # Debian/Ubuntu"

@@ -491,7 +491,7 @@ cat /etc/backup-agent/config.json</pre>
             <p class="intro">SSH 到目标 VPS 后跑这一条：</p>
             <div class="cmd-block">
               <div class="cmd-label"><span class="chip chip-blue">🌍 安装</span></div>
-              <pre class="cmd-pre">curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-install.sh | sudo bash</pre>
+              <pre class="cmd-pre">curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh | sudo bash</pre>
             </div>
             <p class="intro">
               部署包默认从本项目的 <b>GitHub Release</b> 拉取。想换成自建镜像源，用 <code>BC_DEPLOY_URL</code> 覆盖（见下方环境变量表）。
@@ -537,7 +537,7 @@ cat /etc/backup-agent/config.json</pre>
             </p>
             <div class="cmd-block">
               <div class="cmd-label"><span class="chip chip-red">卸载（交互式）</span></div>
-              <pre class="cmd-pre">curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash</pre>
+              <pre class="cmd-pre">curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-uninstall.sh | sudo bash</pre>
             </div>
             <p class="intro">
               <b>脚本会做的事</b>：
@@ -563,7 +563,7 @@ cat /etc/backup-agent/config.json</pre>
               </tbody>
             </table>
             <p class="intro">
-              <b>示例</b>：<code>curl -fsSL https://raw.githubusercontent.com/imask/backup-center/main/install-scripts/bc-uninstall.sh | BC_KEEP_DATA=1 BC_FORCE=1 sudo -E bash</code>
+              <b>示例</b>：<code>curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-uninstall.sh | BC_KEEP_DATA=1 BC_FORCE=1 sudo -E bash</code>
               <br />
               保留数据库、无交互直接卸载。想重装时跑一键部署即可自动重挂原数据库。
             </p>

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imask/backup-agent/internal/client"
+	"github.com/gongpz/backup-center/agent/internal/client"
 )
 
 // Uploader 管理 rclone 配置 + 执行上传 + 上报状态

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imask/backup-agent/internal/sysinfo"
+	"github.com/gongpz/backup-center/agent/internal/sysinfo"
 )
 
 type Client struct {

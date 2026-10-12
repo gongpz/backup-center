@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/imask/backup-agent/internal/client"
+	"github.com/gongpz/backup-center/agent/internal/client"
 )
 
 // writeRcloneConf 生成 rclone.conf 内容并写入文件

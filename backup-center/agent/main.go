@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/imask/backup-agent/internal/client"
-	"github.com/imask/backup-agent/internal/config"
-	"github.com/imask/backup-agent/internal/scanner"
-	"github.com/imask/backup-agent/internal/sysinfo"
-	"github.com/imask/backup-agent/internal/uploader"
+	"github.com/gongpz/backup-center/agent/internal/client"
+	"github.com/gongpz/backup-center/agent/internal/config"
+	"github.com/gongpz/backup-center/agent/internal/scanner"
+	"github.com/gongpz/backup-center/agent/internal/sysinfo"
+	"github.com/gongpz/backup-center/agent/internal/uploader"
 )
 
 const AgentVersion = "0.14.0"
