@@ -30,10 +30,14 @@ COPY . .
 # build 阶段用 array cache/session（内存，不碰 DB）—— Laravel 12 默认 CACHE_STORE=database，
 # 而 package:discover 会调 cache，空 SQLite 里没 cache 表就会崩
 # 运行时 docker-compose environment 覆盖这些为 file（见 docker-compose.yml）
+#
+# 目录必须在 dump-autoload 之前建好：dump-autoload 会触发 package:discover，
+# 它要往 bootstrap/cache/packages.php 写文件，目录不存在就直接失败（exit 1）。
 RUN mkdir -p /var/www/html/database/data \
     && touch /var/www/html/database/database.sqlite /var/www/html/database/data/database.sqlite \
+    && mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/framework/testing \
+    && mkdir -p storage/logs bootstrap/cache database \
     && CACHE_STORE=array SESSION_DRIVER=array composer dump-autoload --optimize \
-    && mkdir -p storage/framework/{sessions,views,cache,testing} storage/logs bootstrap/cache database \
     && chown -R www-data:www-data storage bootstrap/cache database
 
 ENV TZ=Asia/Shanghai
