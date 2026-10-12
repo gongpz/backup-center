@@ -404,7 +404,7 @@ const onSubmit = () => {
   border-radius: 50%;
 }
 .dot-ok   { background: var(--bc-success); }
-.dot-gray { background: #94a3b8; }
+.dot-gray { background: var(--bc-text-secondary); }
 .dot-warn { background: var(--bc-warning); }
 
 .hint {
@@ -440,7 +440,7 @@ const onSubmit = () => {
   border: 1px solid var(--bc-border);
   border-radius: 10px;
   padding: 10px 12px 12px;
-  background: #fbfcfe;
+  background: var(--bc-bg-inset);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -466,7 +466,7 @@ const onSubmit = () => {
   height: 26px;
   border-radius: 6px;
   border: 1px solid var(--bc-border);
-  background: #ffffff;
+  background: var(--bc-bg-card);
   color: var(--bc-text-secondary);
   cursor: pointer;
   display: inline-flex;
@@ -476,15 +476,15 @@ const onSubmit = () => {
 }
 .bp-remove:hover {
   color: var(--bc-danger);
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--bc-danger-border);
+  background: var(--bc-danger-bg);
 }
 
 .bp-add {
   width: 100%;
-  border: 1px dashed #bfdbfe;
+  border: 1px dashed var(--bc-primary-200);
   border-radius: 10px;
-  background: #eff6ff;
+  background: var(--bc-primary-light);
   color: var(--bc-primary);
   padding: 10px 12px;
   font-size: 13px;
@@ -497,7 +497,7 @@ const onSubmit = () => {
   transition: all .15s;
 }
 .bp-add:hover {
-  background: #dbeafe;
+  background: var(--bc-primary-100);
   border-color: var(--bc-primary);
 }
 .bp-add .el-icon {
@@ -506,15 +506,15 @@ const onSubmit = () => {
 
 /* 强制备份提示区 */
 .mandatory-notice {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--bc-danger-bg);
+  border: 1px solid var(--bc-danger-border);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
 }
 .mn-title {
   font-size: 12px;
-  color: #dc2626;
+  color: var(--bc-danger);
   font-weight: 500;
 }
 .mn-list {
@@ -528,10 +528,10 @@ const onSubmit = () => {
   align-items: center;
   padding: 1px 12px;
   border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid #fecaca;
+  background: var(--bc-bg-card);
+  border: 1px solid var(--bc-danger-border);
   font-size: 11px;
-  color: #b91c1c;
+  color: var(--bc-danger);
   line-height: 1.6;
   letter-spacing: 0.2px;
   white-space: nowrap;

@@ -2,6 +2,10 @@
 private/
 .workbuddy/
 
+# ---------- 本地预览工具（mock 服务 / 截图 / 部署预览，仅本机）----------
+.preview-tmp/
+.preview-deploy/
+
 # ---------- 密钥与凭证 ----------
 *.key
 *.pem

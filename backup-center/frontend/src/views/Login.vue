@@ -161,17 +161,18 @@ const onSubmit = () => {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(1200px 600px at 20% 10%, #eff6ff 0%, transparent 60%),
-    radial-gradient(900px 500px at 90% 90%, #e0f2fe 0%, transparent 60%),
-    #f8fafc;
+    radial-gradient(1200px 600px at 20% 10%, var(--bc-primary-light) 0%, transparent 60%),
+    radial-gradient(900px 500px at 90% 90%, var(--bc-info-bg) 0%, transparent 60%),
+    var(--bc-bg-inset);
 }
 .login-card {
   width: 400px;
   padding: 40px 36px 28px;
-  background: #ffffff;
+  background: var(--bc-bg-card);
   border-radius: var(--bc-radius-xl);
   border: 1px solid var(--bc-border-light);
   box-shadow: var(--bc-shadow-lg);
+  animation: bc-rise .6s var(--bc-ease-out) backwards;
 }
 .brand {
   text-align: center;
@@ -181,13 +182,14 @@ const onSubmit = () => {
   width: 52px;
   height: 52px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
-  color: #fff;
+  background: linear-gradient(135deg, var(--bc-primary-400) 0%, var(--bc-primary) 100%);
+  color: var(--bc-on-accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 16px;
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 8px 20px rgba(15, 110, 140, 0.25);
+  animation: bc-float 4.5s ease-in-out .5s infinite;
 }
 .brand h1 {
   margin: 0;

@@ -5,16 +5,16 @@ const props = defineProps({
   storages: { type: Array, default: () => [] },
 })
 
-// 段配色：base = 段整体色（quota 部分），dark = used 部分色。8 色循环
+// 段配色：base = 段整体色（quota 部分），dark = used 部分色。对齐 --bc-chart-* 图表色板
 const PALETTE = [
-  { base: '#93c5fd', dark: '#2563eb' }, // blue
-  { base: '#c4b5fd', dark: '#7c3aed' }, // violet
-  { base: '#6ee7b7', dark: '#059669' }, // emerald
-  { base: '#fcd34d', dark: '#d97706' }, // amber
-  { base: '#fca5a5', dark: '#dc2626' }, // red
-  { base: '#67e8f9', dark: '#0891b2' }, // cyan
-  { base: '#f9a8d4', dark: '#db2777' }, // pink
-  { base: '#bef264', dark: '#65a30d' }, // lime
+  { base: 'var(--bc-chart-1)', dark: 'var(--bc-primary-800)' }, // 青瓷
+  { base: 'var(--bc-chart-2)', dark: '#2f5f8f' },               // 钢蓝
+  { base: 'var(--bc-chart-3)', dark: '#4a55a8' },               // 靛
+  { base: 'var(--bc-chart-4)', dark: '#8a6a25' },               // 琥珀
+  { base: 'var(--bc-chart-5)', dark: '#1f7355' },               // 玉绿
+  { base: 'var(--bc-chart-6)', dark: '#7e3a4d' },               // 绛
+  { base: 'var(--bc-chart-2)', dark: '#2f5f8f' },               // 钢蓝（循环）
+  { base: 'var(--bc-chart-4)', dark: '#8a6a25' },               // 琥珀（循环）
 ]
 
 const fmtBytes = (n) => {
@@ -211,7 +211,7 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
 }
 .stack-bar {
   display: flex;
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--bc-border-light);
@@ -224,7 +224,7 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
 }
 .stack-seg:hover { filter: brightness(1.05); }
 .stack-seg + .stack-seg {
-  border-left: 1px solid rgba(255, 255, 255, 0.7);
+  border-left: 1px solid var(--bc-bg-card);
 }
 .stack-seg-used {
   height: 100%;
@@ -270,18 +270,14 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
 .pool-card {
   padding: 6px 10px;
   border-radius: 8px;
-  background: rgba(59, 130, 246, 0.06);
-  border: 1px solid rgba(59, 130, 246, 0.12);
+  background: var(--bc-bg-inset);
+  border: 1px solid var(--bc-border-light);
   transition: transform 0.15s, box-shadow 0.15s;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 .pool-card:hover { transform: translateY(-1px); box-shadow: var(--bc-shadow-sm); }
-html.dark .pool-card {
-  background: rgba(96, 165, 250, 0.10);
-  border-color: rgba(96, 165, 250, 0.18);
-}
 
 .pool-head {
   display: flex;
@@ -332,9 +328,9 @@ html.dark .pool-card {
 }
 
 .type-badge {
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px solid #dbeafe;
+  background: var(--bc-primary-light);
+  color: var(--bc-primary);
+  border: 1px solid var(--bc-primary-100);
   text-transform: uppercase;
   letter-spacing: 0.4px;
   font-size: 10px;
@@ -343,9 +339,9 @@ html.dark .pool-card {
   white-space: nowrap;
 }
 html.dark .type-badge {
-  background: rgba(96, 165, 250, 0.15);
-  border-color: rgba(96, 165, 250, 0.3);
-  color: #93c5fd;
+  background: var(--bc-primary-50);
+  border-color: var(--bc-primary-100);
+  color: var(--bc-primary-200);
 }
 .lock { font-size: 14px; line-height: 1; }
 
@@ -360,15 +356,15 @@ html.dark .type-badge {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.badge.ok    { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray  { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+.badge.ok    { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray  { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
 
 .pool-quota-pct {
   margin-left: 4px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.pool-quota-pct.ok   { color: #059669; }
-.pool-quota-pct.warn { color: #d97706; }
-.pool-quota-pct.crit { color: #dc2626; }
+.pool-quota-pct.ok   { color: var(--bc-success); }
+.pool-quota-pct.warn { color: var(--bc-warning); }
+.pool-quota-pct.crit { color: var(--bc-danger); }
 </style>

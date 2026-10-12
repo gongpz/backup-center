@@ -25,6 +25,7 @@ const maxValue = computed(() => Math.max(...props.data.map((d) => d.value), 1))
         v-for="(d, i) in data"
         :key="i"
         class="bar-wrap"
+        :style="{ '--i': i }"
         @mouseenter="hoveredIndex = i"
         @mouseleave="hoveredIndex = null"
       >
@@ -99,11 +100,14 @@ const maxValue = computed(() => Math.max(...props.data.map((d) => d.value), 1))
   width: 100%;
   max-width: 32px;
   border-radius: 6px 6px 0 0;
-  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(180deg, var(--bc-primary-400) 0%, var(--bc-primary) 100%);
   transition: background 0.15s, transform 0.15s;
+  transform-origin: bottom;
+  animation: bc-bar-grow .55s var(--bc-ease-out) backwards;
+  animation-delay: calc(min(var(--i, 0), 18) * 30ms);
 }
 .bar.is-hovered {
-  background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+  background: linear-gradient(180deg, var(--bc-primary-400) 0%, var(--bc-primary-400) 100%);
 }
 .x-label {
   position: absolute;
@@ -117,7 +121,7 @@ const maxValue = computed(() => Math.max(...props.data.map((d) => d.value), 1))
   top: -30px;
   padding: 4px 8px;
   background: var(--bc-text-primary);
-  color: #fff;
+  color: var(--bc-bg-card);
   font-size: 11px;
   border-radius: 6px;
   white-space: nowrap;

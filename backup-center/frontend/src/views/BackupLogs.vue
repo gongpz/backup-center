@@ -379,11 +379,11 @@ const total = computed(() => meta.total)
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.warn { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.badge.run  { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.warn { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
 .expand-panel {
   padding: 12px 20px 8px 60px;
@@ -402,7 +402,7 @@ const total = computed(() => meta.total)
 }
 .err-msg {
   font-size: 12px;
-  color: #dc2626;
+  color: var(--bc-danger);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -412,9 +412,9 @@ const total = computed(() => meta.total)
   margin-top: 10px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
+  background: var(--bc-danger-bg);
+  border: 1px solid var(--bc-danger-border);
+  color: var(--bc-danger);
   font-size: 12px;
 }
 </style>

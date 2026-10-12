@@ -186,9 +186,9 @@ const testNotify = async () => {
 .muted { color: var(--bc-text-secondary); font-size: 12px; }
 
 .badge { display: inline-flex; align-items: center; padding: 1px 12px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.6; letter-spacing: 0.2px; white-space: nowrap; }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 
 :deep(.el-divider) {
   margin: 24px 0;

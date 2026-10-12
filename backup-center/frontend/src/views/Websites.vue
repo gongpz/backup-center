@@ -373,8 +373,8 @@ const total = computed(() => meta.total)
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #34d399, #059669);
-  color: #fff;
+  background: linear-gradient(135deg, var(--bc-chart-5), var(--bc-success));
+  color: var(--bc-on-accent);
   font-weight: 600;
   font-size: 13px;
   display: flex;
@@ -429,9 +429,9 @@ const total = computed(() => meta.total)
   flex-wrap: nowrap;
   white-space: nowrap;
 }
-.chip-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
-.chip-cyan   { background: #ecfeff; color: #0891b2; border: 1px solid #cffafe; }
+.chip-blue   { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
+.chip-cyan   { background: rgba(46, 155, 118, .14); color: var(--bc-chart-5); border: 1px solid rgba(46, 155, 118, .22); }
 
 .badge {
   display: inline-flex;
@@ -444,11 +444,11 @@ const total = computed(() => meta.total)
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.warn { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.badge.run  { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.warn { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
 .recent-backups {
   display: flex;

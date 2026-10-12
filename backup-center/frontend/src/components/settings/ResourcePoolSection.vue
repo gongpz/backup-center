@@ -232,23 +232,23 @@ const mirrorPool = computed(() => pools.value.find(p => p.is_agent_mirror))
 <style scoped>
 .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .s-hint { color: var(--bc-text-secondary); font-size: 13px; line-height: 1.6; }
-.mirror-hint { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(37,99,235,0.08); border-radius: 8px; color: var(--bc-primary); font-size: 12px; margin-top: 6px; }
-.mirror-hint.warn { background: rgba(245,158,11,0.08); color: #b45309; }
+.mirror-hint { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bc-primary-light); border-radius: 8px; color: var(--bc-primary); font-size: 12px; margin-top: 6px; }
+.mirror-hint.warn { background: var(--bc-warning-bg); color: var(--bc-warning); }
 .r2-mirror-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .r2-label { font-size: 12px; color: var(--bc-text-primary); font-weight: 500; }
 .r2-hint { font-size: 11px; color: var(--bc-text-placeholder); }
 .sync-result { width: 100%; margin-top: 8px; padding: 8px 12px; background: var(--bc-bg-page); border-radius: 6px; }
 .sync-pool { font-size: 12px; margin: 4px 0; }
 .sync-file { display: inline-block; margin-right: 12px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
-.sync-file.ok { color: #059669; }
-.sync-file.fail { color: #dc2626; text-decoration: underline dotted; }
-.sync-fail { color: #dc2626; }
+.sync-file.ok { color: var(--bc-success); }
+.sync-file.fail { color: var(--bc-danger); text-decoration: underline dotted; }
+.sync-fail { color: var(--bc-danger); }
 .link { color: var(--bc-primary); text-decoration: none; word-break: break-all; font-size: 12px; }
 .link:hover { text-decoration: underline; }
 .muted { color: var(--bc-text-secondary); font-size: 12px; }
 .badge { display: inline-flex; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 500; }
-.badge.ok { background: #ecfdf5; color: #059669; }
-.badge.fail { background: #fef2f2; color: #dc2626; }
-.badge.gray { background: #f1f5f9; color: #64748b; }
-.badge.active { background: #dbeafe; color: #1d4ed8; }
+.badge.ok { background: var(--bc-success-bg); color: var(--bc-success); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); }
+.badge.active { background: var(--bc-primary-100); color: var(--bc-primary-hover); }
 </style>

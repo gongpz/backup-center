@@ -144,7 +144,9 @@ const handleLogout = () => {
       </el-header>
 
       <el-main class="main">
-        <router-view />
+        <transition name="bc-page" mode="out-in" appear>
+          <router-view />
+        </transition>
       </el-main>
     </el-container>
   </el-container>
@@ -194,7 +196,7 @@ const handleLogout = () => {
   height: 32px;
   border-radius: var(--bc-radius);
   background: var(--bc-primary);
-  color: #fff;
+  color: var(--bc-on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -216,6 +218,7 @@ const handleLogout = () => {
   overflow-y: auto;
 }
 :deep(.side-menu .el-menu-item) {
+  position: relative;
   height: 40px;
   line-height: 40px;
   border-radius: var(--bc-radius);
@@ -240,6 +243,19 @@ const handleLogout = () => {
   color: var(--bc-sidebar-active-text);
   font-weight: 500;
 }
+/* 当前项左侧滑动指示条 */
+:deep(.side-menu .el-menu-item.is-active)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--bc-primary);
+  transform-origin: center;
+  animation: bc-indicator .35s var(--bc-ease-out);
+}
 :deep(.side-menu .el-menu-item.is-active .el-icon) {
   color: var(--bc-sidebar-active-text);
 }
@@ -253,8 +269,8 @@ const handleLogout = () => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
-  color: #fff;
+  background: linear-gradient(135deg, var(--bc-primary-400) 0%, var(--bc-primary) 100%);
+  color: var(--bc-on-accent);
   font-weight: 600;
   font-size: 13px;
   display: flex;

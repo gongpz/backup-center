@@ -29,8 +29,8 @@ const rangeOptions = [
   { key: 'halfyear', label: '半年' },
   { key: 'year',     label: '年'   },
 ]
-const range = ref('month')
-const currentRangeLabel = ref('近 30 天')
+const range = ref('week')
+const currentRangeLabel = ref('近 7 天')
 
 /* ---------- 数据 ---------- */
 const data = ref(null)
@@ -62,7 +62,7 @@ const fmtPct = (v) => {
   }
 }
 const rangePrefix = computed(() => ({
-  day: '24 小时', week: '本周', month: '本月', quarter: '季度', halfyear: '半年', year: '年度',
+  day: '24 小时', week: '近 7 天', month: '近 30 天', quarter: '季度', halfyear: '半年', year: '年度',
 })[range.value])
 
 /* ---------- KPI 卡（第一排 数量类）---------- */
@@ -429,10 +429,11 @@ const fmtDuration = (sec) => {
 }
 .range-btn:hover { color: var(--bc-text-primary); }
 .range-btn.active {
-  background: #ffffff;
+  background: var(--bc-bg-card);
   color: var(--bc-primary);
   box-shadow: var(--bc-shadow-sm);
 }
+.range-btn:active { transform: scale(.94); }
 
 /* ---------- KPI 卡片 ---------- */
 .stat-grid {
@@ -465,14 +466,14 @@ const fmtDuration = (sec) => {
   align-items: center;
   justify-content: center;
 }
-.tone-blue    { background: #eff6ff; color: #2563eb; }
-.tone-indigo  { background: #eef2ff; color: #6366f1; }
-.tone-emerald { background: #ecfdf5; color: #10b981; }
-.tone-red     { background: #fef2f2; color: #ef4444; }
-.tone-cyan    { background: #ecfeff; color: #0891b2; }
-.tone-purple  { background: #f5f3ff; color: #7c3aed; }
-.tone-amber   { background: #fffbeb; color: #d97706; }
-.tone-pink    { background: #fdf2f8; color: #db2777; }
+.tone-blue    { background: var(--bc-primary-light); color: var(--bc-primary); }
+.tone-indigo  { background: rgba(110, 123, 200, .14); color: var(--bc-chart-3); }
+.tone-emerald { background: var(--bc-success-bg); color: var(--bc-success); }
+.tone-red     { background: var(--bc-danger-bg); color: var(--bc-danger); }
+.tone-cyan    { background: rgba(46, 155, 118, .14); color: var(--bc-chart-5); }
+.tone-purple  { background: var(--bc-info-bg); color: var(--bc-info); }
+.tone-amber   { background: var(--bc-warning-bg); color: var(--bc-warning); }
+.tone-pink    { background: rgba(168, 86, 107, .14); color: var(--bc-chart-6); }
 
 .stat-value {
   font-size: 28px;
@@ -543,8 +544,8 @@ const fmtDuration = (sec) => {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.chip-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
+.chip-blue   { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
 
 .summary {
   display: flex;
@@ -626,14 +627,14 @@ tbody tr:hover { background: var(--bc-bg-hover); }
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--bc-primary-light);
+  color: var(--bc-primary);
   font-size: 12px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--bc-primary-100);
   flex-shrink: 0;
 }
 .badge {
@@ -647,9 +648,9 @@ tbody tr:hover { background: var(--bc-bg-hover); }
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.badge.run  { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.badge.run  { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
 
 .empty {
   padding: 60px 20px;

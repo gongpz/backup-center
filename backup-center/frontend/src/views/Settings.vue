@@ -80,7 +80,7 @@ const activeTab = ref('system')
   margin: 0;
   padding: 0 20px;
   border-bottom: 1px solid var(--bc-border-light);
-  background: linear-gradient(180deg, rgba(37,99,235,0.02) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(15, 110, 140, .04) 0%, transparent 100%);
 }
 :deep(.el-tabs__nav-wrap::after) { display: none; }
 :deep(.el-tabs__item) {

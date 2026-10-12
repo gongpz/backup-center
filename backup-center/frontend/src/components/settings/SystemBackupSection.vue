@@ -106,6 +106,6 @@ onMounted(load)
 .s-card-head { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--bc-text-primary); margin-bottom: 8px; }
 .s-card-head .el-icon { color: var(--bc-primary); }
 .s-hint { color: var(--bc-text-secondary); font-size: 13px; margin: 0 0 16px; line-height: 1.6; }
-.action-card { background: linear-gradient(135deg, rgba(37,99,235,0.03) 0%, rgba(37,99,235,0.08) 100%); border-color: rgba(37,99,235,0.2); }
+.action-card { background: linear-gradient(135deg, var(--bc-primary-light) 0%, var(--bc-primary-100) 100%); border-color: var(--bc-primary-100); }
 .big-btn { width: 100%; height: 44px; font-size: 14px; }
 </style>

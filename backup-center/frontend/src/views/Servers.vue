@@ -134,9 +134,9 @@ const diskPct = (d) => {
 }
 const diskColor = (d) => {
   const p = diskPct(d)
-  if (p >= 90) return '#ef4444'
-  if (p >= 75) return '#f59e0b'
-  return '#10b981'
+  if (p >= 90) return 'var(--bc-danger)'
+  if (p >= 75) return 'var(--bc-warning)'
+  return 'var(--bc-success)'
 }
 
 /* ---------- Agent 批量升级 ---------- */
@@ -494,7 +494,7 @@ const bulkDispatch = () => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--bc-on-accent);
   font-weight: 600;
   font-size: 13px;
   display: flex;
@@ -502,8 +502,8 @@ const bulkDispatch = () => {
   justify-content: center;
   flex-shrink: 0;
 }
-.server-avatar.agent { background: linear-gradient(135deg, #60a5fa, #2563eb); }
-.server-avatar.ssh   { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+.server-avatar.agent { background: linear-gradient(135deg, var(--bc-primary-400), var(--bc-primary)); }
+.server-avatar.ssh   { background: linear-gradient(135deg, var(--bc-chart-3), var(--bc-info)); }
 .cell-name-text .strong {
   color: var(--bc-text-primary);
   font-weight: 500;
@@ -525,8 +525,8 @@ const bulkDispatch = () => {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.chip-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
+.chip-blue   { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
 
 .badge {
   display: inline-flex;
@@ -539,10 +539,10 @@ const bulkDispatch = () => {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.warn { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.warn { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 
 .usage {
   display: flex;
@@ -608,9 +608,9 @@ const bulkDispatch = () => {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px solid #dbeafe;
+  background: var(--bc-primary-light);
+  color: var(--bc-primary);
+  border: 1px solid var(--bc-primary-100);
   line-height: 1.6;
   letter-spacing: 0.2px;
 }
@@ -631,8 +631,8 @@ const bulkDispatch = () => {
   padding: 0 5px;
   margin-left: 4px;
   border-radius: 999px;
-  background: #f59e0b;
-  color: #fff;
+  background: var(--bc-warning);
+  color: var(--bc-on-accent);
   font-size: 11px;
   font-weight: 600;
 }
@@ -641,13 +641,13 @@ const bulkDispatch = () => {
   align-items: center;
   padding: 2px 10px;
   border-radius: 999px;
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background: var(--bc-danger-bg);
+  color: var(--bc-danger);
+  border: 1px solid var(--bc-danger-border);
   font-size: 12px;
   cursor: pointer;
 }
-.ver-fail-chip:hover { background: #fee2e2; }
+.ver-fail-chip:hover { background: var(--bc-danger-bg); }
 .row-actions {
   display: inline-flex;
   align-items: center;

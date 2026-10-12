@@ -333,8 +333,8 @@ const usageClass = (row) => {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.chip-info { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-red  { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.chip-info { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-red  { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 
 .badge {
   display: inline-flex;
@@ -355,9 +355,9 @@ const usageClass = (row) => {
   flex-wrap: nowrap;
   white-space: nowrap;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 
 .quota-cell {
   font-size: 12px;
@@ -374,12 +374,12 @@ const usageClass = (row) => {
   font-weight: 600;
   font-size: 12px;
 }
-.quota-pct.ok   { color: #059669; }
-.quota-pct.warn { color: #d97706; }
-.quota-pct.crit { color: #dc2626; }
+.quota-pct.ok   { color: var(--bc-success); }
+.quota-pct.warn { color: var(--bc-warning); }
+.quota-pct.crit { color: var(--bc-danger); }
 .quota-bar {
   height: 6px;
-  background: #e5e7eb;
+  background: var(--bc-border-light);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -388,7 +388,7 @@ const usageClass = (row) => {
   border-radius: 999px;
   transition: width .2s;
 }
-.quota-bar-fill.ok   { background: #10b981; }
-.quota-bar-fill.warn { background: #f59e0b; }
-.quota-bar-fill.crit { background: #ef4444; }
+.quota-bar-fill.ok   { background: var(--bc-success); }
+.quota-bar-fill.warn { background: var(--bc-warning); }
+.quota-bar-fill.crit { background: var(--bc-danger); }
 </style>

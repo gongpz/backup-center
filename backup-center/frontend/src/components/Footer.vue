@@ -19,7 +19,7 @@ const load = async () => {
     if (d.footer_config) config.value = { ...config.value, ...d.footer_config }
     // agent version from setting；system 版本这里用配置里的 latest_version
     versions.value.agent = 'v0.14.0'
-    versions.value.system = 'v1.0-MVP'
+    versions.value.system = 'v1.1.0'
   } catch (_) {}
   if (config.value.show_stats) {
     try {
@@ -131,7 +131,7 @@ defineExpose({ refresh: load })
 .link:hover { text-decoration: underline; }
 .chip-info {
   padding: 3px 10px; border-radius: 999px;
-  background: rgba(37,99,235,0.06); color: var(--bc-text-regular);
+  background: var(--bc-primary-light); color: var(--bc-text-regular);
   font-size: 11px; letter-spacing: 0.2px;
 }
 .contact-btn {
@@ -143,7 +143,7 @@ defineExpose({ refresh: load })
   border: 1px solid var(--bc-border-light);
   text-decoration: none;
 }
-.contact-btn:hover { background: rgba(37,99,235,0.08); color: var(--bc-primary); border-color: var(--bc-primary); }
+.contact-btn:hover { background: var(--bc-primary-light); color: var(--bc-primary); border-color: var(--bc-primary); }
 .contact-pop { font-size: 13px; }
 .contact-label { color: var(--bc-text-secondary); font-size: 11px; margin-bottom: 4px; }
 .contact-value {

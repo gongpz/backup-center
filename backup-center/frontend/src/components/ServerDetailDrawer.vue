@@ -338,10 +338,10 @@ const usageClass = (d) => {
   white-space: nowrap;
   flex-shrink: 0;
 }
-.badge.ok   { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
-.badge.gray { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-.badge.warn { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-.badge.fail { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge.ok   { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
+.badge.gray { background: var(--bc-bg-hover); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+.badge.warn { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
+.badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 
 .cmd-block {
   margin-bottom: 12px;
@@ -368,9 +368,9 @@ const usageClass = (d) => {
   letter-spacing: 0.2px;
   white-space: nowrap;
 }
-.chip-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-red    { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.chip-purple { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.chip-blue   { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-red    { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
 .token-box, .cmd-box {
   background: var(--bc-bg-page);
   border: 1px solid var(--bc-border-light);
@@ -435,7 +435,7 @@ const usageClass = (d) => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #ffffff;
+  background: var(--bc-bg-card);
   border: 1px solid var(--bc-border-light);
   color: var(--bc-text-secondary);
   flex-shrink: 0;
@@ -446,13 +446,13 @@ const usageClass = (d) => {
   min-width: 42px;
   text-align: right;
 }
-.disk-usage.ok   { color: #059669; }
-.disk-usage.warn { color: #d97706; }
-.disk-usage.crit { color: #dc2626; }
+.disk-usage.ok   { color: var(--bc-success); }
+.disk-usage.warn { color: var(--bc-warning); }
+.disk-usage.crit { color: var(--bc-danger); }
 
 .disk-bar {
   height: 6px;
-  background: #e5e7eb;
+  background: var(--bc-border-light);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -461,9 +461,9 @@ const usageClass = (d) => {
   border-radius: 999px;
   transition: width .2s;
 }
-.disk-bar-fill.ok   { background: #10b981; }
-.disk-bar-fill.warn { background: #f59e0b; }
-.disk-bar-fill.crit { background: #ef4444; }
+.disk-bar-fill.ok   { background: var(--bc-success); }
+.disk-bar-fill.warn { background: var(--bc-warning); }
+.disk-bar-fill.crit { background: var(--bc-danger); }
 
 .disk-sub {
   margin-top: 6px;

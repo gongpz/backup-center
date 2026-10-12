@@ -4,10 +4,10 @@
  */
 
 export const storageTypes = [
-  { value: 'sftp',   label: 'SFTP / SSH', icon: 'Link',        color: '#2563eb' },
-  { value: 'ftp',    label: 'FTP / FTPS', icon: 'Upload',      color: '#f59e0b' },
-  { value: 'webdav', label: 'WebDAV',      icon: 'Cloudy',      color: '#0891b2' },
-  { value: 's3',     label: 'S3 兼容',      icon: 'MostlyCloudy', color: '#7c3aed' },
+  { value: 'sftp',   label: 'SFTP / SSH', icon: 'Link',        color: '#0f6e8c' },
+  { value: 'ftp',    label: 'FTP / FTPS', icon: 'Upload',      color: '#b08a3e' },
+  { value: 'webdav', label: 'WebDAV',      icon: 'Cloudy',      color: '#2e9b76' },
+  { value: 's3',     label: 'S3 兼容',      icon: 'MostlyCloudy', color: '#6e7bc8' },
 ]
 
 export const typeMeta = Object.fromEntries(storageTypes.map((t) => [t.value, t]))

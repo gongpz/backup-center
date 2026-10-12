@@ -610,7 +610,7 @@ cat /etc/backup-agent/config.json</pre>
 .tab-intro {
   padding: 14px 16px;
   margin-bottom: 12px;
-  background: #f8fafc;
+  background: var(--bc-bg-inset);
   border: 1px solid var(--bc-border-light);
   border-radius: var(--bc-radius);
   font-size: 13px;
@@ -641,16 +641,16 @@ cat /etc/backup-agent/config.json</pre>
   line-height: 1.6;
   white-space: nowrap;
 }
-.chip-blue    { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-purple  { background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
-.chip-red     { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.chip-s3      { background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; }
-.chip-sftp    { background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
-.chip-webdav  { background: #ecfeff; color: #0891b2; border: 1px solid #cffafe; }
+.chip-blue    { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-purple  { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
+.chip-red     { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.chip-s3      { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-sftp    { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
+.chip-webdav  { background: rgba(46, 155, 118, .14); color: var(--bc-chart-5); border: 1px solid rgba(46, 155, 118, .22); }
 .doc-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
 .doc-table th, .doc-table td { padding: 6px 10px; border: 1px solid var(--bc-border-light); text-align: left; }
 .doc-table th { background: var(--bc-bg-page); font-weight: 600; }
-.doc-table code { background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.doc-table code { background: var(--bc-bg-inset); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 .cmd-block { margin: 8px 0; }
 .cmd-label { margin-bottom: 4px; }
 .cmd-pre { background: var(--bc-bg-page); border: 1px solid var(--bc-border-light); border-radius: 6px; padding: 10px 12px; font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 12px; overflow-x: auto; margin: 0; }
@@ -710,11 +710,11 @@ cat /etc/backup-agent/config.json</pre>
 .tip {
   margin-top: 12px;
   padding: 10px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  background: var(--bc-warning-bg);
+  border: 1px solid var(--bc-warning-border);
   border-radius: var(--bc-radius);
   font-size: 12px;
-  color: #92400e;
+  color: var(--bc-warning);
   line-height: 1.7;
   white-space: pre-line;
 }

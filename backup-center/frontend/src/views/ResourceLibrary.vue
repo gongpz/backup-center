@@ -209,12 +209,12 @@ onMounted(async () => { await loadPools(); await loadFiles() })
 .pool-url { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--bc-text-secondary); margin-top: 4px; }
 .pool-url .el-icon { color: var(--bc-primary); }
 .muted { color: var(--bc-text-secondary); font-weight: normal; font-size: 12px; margin-left: 6px; }
-.upload-progress { padding: 12px 16px; background: rgba(37,99,235,0.06); border-radius: 8px; margin: 12px 0; }
+.upload-progress { padding: 12px 16px; background: var(--bc-primary-light); border-radius: 8px; margin: 12px 0; }
 .link { color: var(--bc-primary); text-decoration: none; }
 .link:hover { text-decoration: underline; }
 .url-row { display: flex; align-items: center; gap: 6px; }
 .url { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 11px; color: var(--bc-text-regular); background: var(--bc-bg-page); padding: 2px 6px; border-radius: 4px; word-break: break-all; flex: 1; }
-.badge { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; background: #dbeafe; color: #1d4ed8; }
+.badge { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--bc-primary-100); color: var(--bc-primary-hover); }
 .remark-cell { display: flex; align-items: center; gap: 6px; }
 .remark-text { font-size: 12px; color: var(--bc-text-regular); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .remark-empty { font-size: 12px; color: var(--bc-text-placeholder); flex: 1; }
