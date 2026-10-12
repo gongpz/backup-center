@@ -218,38 +218,47 @@ cd /opt/bc/deploy && sudo docker compose down -v && sudo rm -rf /opt/bc
 
 ## 🔄 升级到新版本
 
+> 生产环境（bf.imask.cc）的完整升级作业书见 **[生产升级步骤-v1.0.0.md](./生产升级步骤-v1.0.0.md)**，其中包含备份、精确覆盖清单、验证与回滚。
+> 下面是简版流程（适合全新安装的自托管实例）。
+
 ```bash
 # 1) 备份数据库（保险）
-sudo docker run --rm \
-    -v deploy_bc-database:/data -v /tmp:/host \
-    alpine cp /data/database.sqlite /host/bc-db-$(date +%s).bak
+sudo docker cp bc-app:/var/www/html/database/data/database.sqlite \
+    /root/database-$(date +%Y%m%d-%H%M).sqlite.bak
 
-# 2) 停容器
-cd /opt/bc/deploy && sudo docker compose down
+# 2) 拉最新部署包
+curl -fsSL https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz \
+    -o /tmp/bc-new.tar.gz
 
-# 3) 拉最新部署包
-curl -fsSL https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz -o /tmp/bc-new.tar.gz
+# 3) 解开到临时目录（不要直接覆盖 deploy/，会冲掉 .env 与 ssl/）
+mkdir -p /tmp/bc-new && tar -xzf /tmp/bc-new.tar.gz -C /tmp/bc-new
 
-# 4) 覆盖代码
-sudo tar -xzf /tmp/bc-new.tar.gz -C /opt/bc/
+# 4) 精确覆盖：只换代码与前端产物
+sudo rm -rf /opt/bc/backend && sudo cp -a /tmp/bc-new/backend /opt/bc/backend
+sudo rm -rf /opt/bc/deploy/frontend-dist && sudo cp -a /tmp/bc-new/deploy/frontend-dist /opt/bc/deploy/frontend-dist
 
 # 5) 重新构建镜像 + 启动
-cd /opt/bc/deploy && sudo docker compose build app && sudo docker compose up -d
+cd /opt/bc/deploy && sudo docker compose build app && sudo docker compose up -d --force-recreate app
+
+# 6) 迁移 + 清缓存
+sudo docker exec bc-app php artisan migrate --force
+sudo docker exec bc-app php artisan optimize:clear
 ```
+
+> ⚠️ 两个文件**永远不要**用新包覆盖：`deploy/.env`（APP_KEY 丢了则已加密的存储凭证全废）和 `deploy/nginx.conf`（含你的真实域名与证书路径，新包里只是 `server_name _` 模板）。
 
 ---
 
 ## 🌐 换镜像源（可选）
 
-默认从**腾讯云 COS 广州**下载（中国大陆访问快）。想用 **Cloudflare R2 免费出站**：
+部署包默认从本项目的 **GitHub Release** 拉取（`releases/latest/download/bc-deploy.tar.gz`，由 Actions 在推 tag 时自动构建上传）。
 
-1. Cloudflare Dashboard → R2 → `webbak` bucket → Settings → 开启 **Public Development URL**
-2. 复制拿到的 URL（形如 `https://pub-xxx.r2.dev`）
-3. 加环境变量 `BC_DEPLOY_URL`：
+想用自建镜像源（比如对象存储）加速，用 `BC_DEPLOY_URL` 覆盖：
 
 ```bash
 R2_URL="https://pub-你的hash.r2.dev"
-curl -fsSL "$R2_URL/bc-install.sh" | BC_DEPLOY_URL="$R2_URL/bc-deploy.tar.gz" sudo -E bash
+curl -fsSL https://raw.githubusercontent.com/gongpz/backup-center/main/install-scripts/bc-install.sh \
+  | BC_DEPLOY_URL="$R2_URL/bc-deploy.tar.gz" sudo -E bash
 ```
 
 （交互式提问部分仍然会走，只是部署包下载源换了）
