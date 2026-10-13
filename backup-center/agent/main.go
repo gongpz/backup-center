@@ -156,7 +156,8 @@ func cmdRun(configPath string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				refreshWebsites(c, scn, up)
+				// 心跳节奏不变：仍是每 websiteRefreshInterval 秒刷一次；失败只记日志
+				_ = refreshWebsites(c, scn, up)
 			}
 		}
 	}()
@@ -222,17 +223,39 @@ func doHeartbeat(c *client.Client, cfg *config.Config, scn *scanner.Scanner, up 
 	}
 }
 
-func refreshWebsites(c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) {
+// refreshWebsites 从 Center 拉取最新的网站 + 存储清单并写入 scanner / uploader。
+// 心跳之外的「敏感命令」（自主压缩、高级恢复）也会在执行前调用它，避免用陈旧配置。
+// 并发安全：c.WebsitesFull 走共享 http.Client（本身并发安全），
+// up.UpdateStorages 与 scn.SetWebsites 各自持有互斥锁。
+func refreshWebsites(c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) error {
 	data, err := c.WebsitesFull()
 	if err != nil {
 		slog.Warn("刷新网站列表失败", "err", err)
-		return
+		return err
 	}
 	if err := up.UpdateStorages(data.Storages); err != nil {
 		slog.Warn("更新 rclone 配置失败", "err", err)
 	}
 	scn.SetWebsites(data.Websites)
 	slog.Debug("刷新配置", "websites", len(data.Websites), "storages", len(data.Storages))
+	return nil
+}
+
+// resolveWebsiteForCommand 执行敏感命令前强制刷新一次网站清单，再按 ID 取配置。
+// 背景：网站清单原本只在心跳（每 300s）刷新，用户刚在 Center 配好 web_root / db_*
+// 就下发「自主压缩」或「高级恢复」时，Agent 内存里还是旧值（web_root 可能为空），
+// 导致本该成功的操作报「未配置网站根目录与数据库」或恢复到错误目录。
+// 刷新失败时按当前内存配置继续（保留旧行为）；刷新成功但仍查不到，说明该网站
+// 确实不在 Center 的清单里，给出与「配置缺失」可区分的提示。
+func resolveWebsiteForCommand(c *client.Client, scn *scanner.Scanner, up *uploader.Uploader, siteID int64, action string) (client.Website, error) {
+	if err := refreshWebsites(c, scn, up); err != nil {
+		slog.Warn(action+"前刷新网站列表失败，将按当前内存中的配置继续", "err", err, "website_id", siteID)
+	}
+	w, ok := scn.WebsiteByID(siteID)
+	if !ok {
+		return client.Website{}, fmt.Errorf("网站列表刷新后仍未找到该网站（ID %d），请确认该网站未被删除、且 Agent 已成功连接 Center", siteID)
+	}
+	return w, nil
 }
 
 // cmdUpdate 是终端手动触发的入口：走 performUpdate，然后打印结果并 exit。
@@ -436,7 +459,7 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 	case "restore":
 		// 远程恢复（最小可用版）：把云端归档 rclone copy 回原本地目录，
 		// 不做解包 / 不自动导入数据库，由管理员手动处理（解压 tar / 导入 .sql）
-		output, err := performRestore(cmd, c, scn)
+		output, err := performRestore(cmd, c, scn, up)
 		if err != nil {
 			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
 			_ = c.CommandResult(&client.CommandResultRequest{
@@ -502,7 +525,7 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 // 因此无需再解析 storage_id，直接复用 rclone.conf 里的 bc_<id> remote 即可。
 // 仅下载归档，不自动解包 / 不自动导入数据库。
 // 长任务期间每 5s 通过 c.CommandProgress 上报 rclone 最新进度行（status 保持 dispatched）。
-func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.Scanner) (string, error) {
+func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) (string, error) {
 	p := cmd.Params
 	if p == nil {
 		return "", fmt.Errorf("恢复指令缺少参数")
@@ -589,9 +612,9 @@ func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.S
 			if perr != nil {
 				return "", fmt.Errorf("advanced 恢复 website_id 解析失败: %w", perr)
 			}
-			w, ok := scn.WebsiteByID(siteID)
-			if !ok {
-				return "", fmt.Errorf("advanced 恢复未找到网站配置（web_root/db）")
+			w, err := resolveWebsiteForCommand(c, scn, up, siteID, "advanced 恢复")
+			if err != nil {
+				return "", err
 			}
 			bak, err := performAdvancedWebRestore(cmd, c, w, dest)
 			if err != nil {
@@ -604,9 +627,9 @@ func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.S
 			if perr != nil {
 				return "", fmt.Errorf("advanced 恢复 website_id 解析失败: %w", perr)
 			}
-			w, ok := scn.WebsiteByID(siteID)
-			if !ok {
-				return "", fmt.Errorf("advanced 恢复未找到网站配置（web_root/db）")
+			w, err := resolveWebsiteForCommand(c, scn, up, siteID, "advanced 恢复")
+			if err != nil {
+				return "", err
 			}
 			bak, err := performAdvancedDBRestore(cmd, c, w, dest)
 			if err != nil {
@@ -808,9 +831,9 @@ func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploade
 	if err != nil {
 		return "", fmt.Errorf("website_id 解析失败: %w", err)
 	}
-	w, ok := scn.WebsiteByID(websiteID)
-	if !ok {
-		return "", fmt.Errorf("网站 %d 不在 Agent 已加载的清单中", websiteID)
+	w, err := resolveWebsiteForCommand(c, scn, up, websiteID, "自主备份")
+	if err != nil {
+		return "", err
 	}
 	if w.WebRoot == "" && w.DBType == "" {
 		return "", fmt.Errorf("未配置网站根目录与数据库，无法自主备份（请先在 Center 绑定 web_root 或填写数据库连接）")

@@ -386,7 +386,10 @@ const buildRecentSelfBackups = (website) => {
 db.restoreCommands = []
 const scheduleRestore = (cmd) => {
   const advanced = cmd.params.restore_mode === 'advanced'
-  const isDb = /-db-.*\.sql\.gz$/.test(cmd.params.filename)
+  // 按后缀判定：真实备份的数据库产物一律是 <name>-db-<ts>.sql.gz，
+  // 但外部扫描到的可能是 mysqldump 直接产出的 <db>_<ts>.sql.gz（不含 -db-），
+  // 因此不能用 -db- 中缀判断，否则数据库文件会被当成网站文件走「解压覆盖」分支。
+  const isDb = /\.sql\.gz$/i.test(cmd.params.filename)
   const finish = () => {
     if (cmd.status !== 'pending' && cmd.status !== 'dispatched') return
     cmd.status = 'success'
