@@ -152,7 +152,10 @@ const onSubmit = () => {
         <p v-if="isDemo" class="demo-tip">演示环境 · 任意用户名与密码均可登录</p>
       </el-form>
     </div>
-    <div class="footer-tip">© Backup Center — 备份管理中心</div>
+    <div class="footer-tip">
+      © Backup Center — 备份管理中心 ·
+      <a class="author-link" href="https://github.com/gongpz/" target="_blank" rel="noopener" title="GitHub @gongpz">By：Mask</a>
+    </div>
   </div>
 </template>
 
@@ -229,4 +232,10 @@ const onSubmit = () => {
   color: var(--bc-text-placeholder);
   font-size: 12px;
 }
+.footer-tip .author-link {
+  color: var(--bc-text-placeholder);
+  text-decoration: none;
+  transition: color .15s;
+}
+.footer-tip .author-link:hover { color: var(--bc-primary); }
 </style>

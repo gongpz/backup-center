@@ -65,6 +65,7 @@ defineExpose({ refresh: load })
     <div class="footer-inner">
       <div class="footer-left">
         <span v-if="config.copyright" class="copyright">{{ config.copyright }}</span>
+        <a class="author" href="https://github.com/gongpz/" target="_blank" rel="noopener" title="GitHub @gongpz">By：Mask</a>
         <span v-if="config.icp_beian" class="icp">{{ config.icp_beian }}</span>
         <a v-if="config.disclaimer" @click.prevent="showDisclaimer" class="link">免责声明</a>
       </div>
@@ -129,6 +130,8 @@ defineExpose({ refresh: load })
 .icp { color: var(--bc-text-placeholder); }
 .link { color: var(--bc-primary); cursor: pointer; text-decoration: none; }
 .link:hover { text-decoration: underline; }
+.author { color: var(--bc-text-placeholder); text-decoration: none; transition: color .15s; }
+.author:hover { color: var(--bc-primary); }
 .chip-info {
   padding: 3px 10px; border-radius: 999px;
   background: var(--bc-primary-light); color: var(--bc-text-regular);
