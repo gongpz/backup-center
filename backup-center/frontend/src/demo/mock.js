@@ -211,6 +211,18 @@ db.logs = [
   { ...mkLog(15825, '旧版官网', 'us-backup-04', 1.2 * GB, 'success', 320, 66), website: { name: '旧版官网', domain: 'old.example.com' }, server: { name: 'us-backup-04' }, website_id: 8, server_id: 4, filename: 'old_20261012_020000.tar.gz', full_path: '/var/www/old/backup/old_20261012_020000.tar.gz', upload_status: 'uploaded' },
   { ...mkLog(15824, '客户门户', 'hk-prod-01', 1.7 * GB, 'success', 96, 68), website: { name: '客户门户', domain: 'portal.example.com' }, server: { name: 'hk-prod-01' }, website_id: 2, server_id: 1, filename: 'portal_20261012_030001.tar.gz', full_path: '/srv/portal/backup/portal_20261012_030001.tar.gz', upload_status: 'uploaded' },
   { ...mkLog(15823, '数据中台', 'sg-db-02', 3.4 * GB, 'success', 128, 138), website: { name: '数据中台', domain: 'data.example.internal' }, server: { name: 'sg-db-02' }, website_id: 4, server_id: 2, filename: 'warehouse_20261012_013000.tar.gz', full_path: '/data/warehouse/backup/warehouse_20261012_013000.tar.gz', upload_status: 'uploaded' },
+  /* P2 数据恢复演示：补齐「同一天一套（网站目录 + 数据库转储）、跨多天」的记录 */
+  { ...mkLog(15842, '官网主站', 'hk-prod-01', 2.0 * GB, 'success', 4320, 92), website: { name: '官网主站', domain: 'www.example.com' }, server: { name: 'hk-prod-01' }, website_id: 1, server_id: 1, filename: 'html_20261010_020001.tar.gz', full_path: '/var/www/backup/html_20261010_020001.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15843, '官网主站', 'hk-prod-01', 610 * MB, 'success', 4320, 44), website: { name: '官网主站', domain: 'www.example.com' }, server: { name: 'hk-prod-01' }, website_id: 1, server_id: 1, filename: 'mysql_20261010_030000.sql.gz', full_path: '/data/mysql/backup/mysql_20261010_030000.sql.gz', upload_status: 'uploaded' },
+  { ...mkLog(15833, '官网主站', 'hk-prod-01', 2.1 * GB, 'success', 1440, 88), website: { name: '官网主站', domain: 'www.example.com' }, server: { name: 'hk-prod-01' }, website_id: 1, server_id: 1, filename: 'html_20261012_020001.tar.gz', full_path: '/var/www/backup/html_20261012_020001.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15834, '官网主站', 'hk-prod-01', 380 * MB, 'success', 1440, 21), website: { name: '官网主站', domain: 'www.example.com' }, server: { name: 'hk-prod-01' }, website_id: 1, server_id: 1, filename: 'nginx_20261012_020002.tar.gz', full_path: '/etc/nginx/backup/nginx_20261012_020002.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15835, '官网主站', 'hk-prod-01', 620 * MB, 'success', 1440, 51), website: { name: '官网主站', domain: 'www.example.com' }, server: { name: 'hk-prod-01' }, website_id: 1, server_id: 1, filename: 'mysql_20261012_030000.sql.gz', full_path: '/data/mysql/backup/mysql_20261012_030000.sql.gz', upload_status: 'uploaded' },
+  { ...mkLog(15836, '客户门户', 'hk-prod-01', 1.6 * GB, 'success', 2880, 63), website: { name: '客户门户', domain: 'portal.example.com' }, server: { name: 'hk-prod-01' }, website_id: 2, server_id: 1, filename: 'portal_20261011_030002.tar.gz', full_path: '/srv/portal/backup/portal_20261011_030002.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15837, '客户门户', 'hk-prod-01', 240 * MB, 'success', 2880, 17), website: { name: '客户门户', domain: 'portal.example.com' }, server: { name: 'hk-prod-01' }, website_id: 2, server_id: 1, filename: 'portal_mysql_20261011_030003.sql.gz', full_path: '/data/mysql/backup/portal_mysql_20261011_030003.sql.gz', upload_status: 'uploaded' },
+  { ...mkLog(15838, '电商平台', 'sg-db-02', 4.8 * GB, 'success', 1440, 171), website: { name: '电商平台', domain: 'shop.example.com' }, server: { name: 'sg-db-02' }, website_id: 3, server_id: 2, filename: 'shop_20261012_040000.tar.gz', full_path: '/data/shop/backup/shop_20261012_040000.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15839, '电商平台', 'sg-db-02', 5.2 * GB, 'success', 1440, 205), website: { name: '电商平台', domain: 'shop.example.com' }, server: { name: 'sg-db-02' }, website_id: 3, server_id: 2, filename: 'shop_mysql_20261012_040001.sql.gz', full_path: '/data/mysql/backup/shop_mysql_20261012_040001.sql.gz', upload_status: 'uploaded' },
+  { ...mkLog(15840, '数据中台', 'sg-db-02', 3.2 * GB, 'success', 2880, 131), website: { name: '数据中台', domain: 'data.example.internal' }, server: { name: 'sg-db-02' }, website_id: 4, server_id: 2, filename: 'warehouse_20261011_013000.tar.gz', full_path: '/data/warehouse/backup/warehouse_20261011_013000.tar.gz', upload_status: 'uploaded' },
+  { ...mkLog(15841, '数据中台', 'sg-db-02', 700 * MB, 'success', 2880, 58), website: { name: '数据中台', domain: 'data.example.internal' }, server: { name: 'sg-db-02' }, website_id: 4, server_id: 2, filename: 'warehouse_mysql_20261011_013001.sql.gz', full_path: '/data/mysql/backup/warehouse_mysql_20261011_013001.sql.gz', upload_status: 'uploaded' },
 ].map((l) => ({
   ...l,
   uploads: (l.succeeded || []).map((s, i) => ({
@@ -224,7 +236,7 @@ db.logs = [
     finished_at: l.synced_at,
     error_message: null,
     remote_path: `/backups/${l.website.name}/${l.filename}`,
-  })).concat((l.failed || []).map((f) => ({
+  })).concat((l.failed || []).map((f, i) => ({
     id: l.id * 10 + 50 + i,
     storage_name: f.storage_name,
     storage_type: 'webdav',
@@ -269,6 +281,48 @@ const removeById = (list, id) => {
 const serverRef = (id) => {
   const s = findById(db.servers, id)
   return s ? { name: s.name, connect_type: s.connect_type } : null
+}
+
+/* ---------- 数据恢复（P2）辅助 ---------- */
+// range → 天数，与 RestoreController::backups 的映射一致
+const RANGE_DAYS = { month: 30, week: 7, '3day': 3, '1day': 1 }
+
+// 本地日期 Y-m-d（后端按 app 时区分组，演示用浏览器本地时区）
+const localDate = (iso) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// 最新一次成功上传（与后端闭包同序：uploaded + remote_path 非空 + id 倒序取首条）
+const latestUpload = (log) => (log.uploads || [])
+  .filter((u) => u.status === 'uploaded' && u.remote_path)
+  .sort((a, b) => b.id - a.id)[0] || null
+
+const fileType = (filename) => (/\.sql(\.|$)/i.test(filename || '') ? 'database' : 'website')
+
+const fileLabel = (log, website) => {
+  const type = fileType(log.filename)
+  const fallback = type === 'database' ? '数据库' : '网站目录'
+  const fullPath = log.full_path || ''
+  for (const bp of website.backup_paths || []) {
+    if (bp.path && fullPath.startsWith(bp.path)) return bp.label || fallback
+  }
+  return fallback
+}
+
+// 恢复命令队列：pending → dispatched(6s) → success(14s)，模拟 Agent 每次心跳逐条执行
+db.restoreCommands = []
+const scheduleRestore = (cmd) => {
+  setTimeout(() => { if (cmd.status === 'pending') cmd.status = 'dispatched' }, 6000)
+  setTimeout(() => {
+    if (cmd.status === 'pending' || cmd.status === 'dispatched') {
+      cmd.status = 'success'
+      cmd.output = `已恢复 ${cmd.params.filename} → ${cmd.params.local_dir}`
+      cmd.completed_at = new Date().toISOString()
+    }
+  }, 14000)
 }
 
 /** Agent 升级：下发后模拟「待执行 → 执行中 → 成功」的状态推进 */
@@ -556,6 +610,133 @@ const routes = [
       })
     }
     return { commands }
+  }],
+
+  /* ---------- 数据恢复（P2：按网站+日期分组的整套恢复） ---------- */
+  ['get', /^\/restore\/websites$/, () => ({
+    data: [...db.websites]
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+      .slice(0, 200)
+      .map((w) => ({
+        id: w.id,
+        name: w.name,
+        domain: w.domain,
+        server_name: w.server?.name || findById(db.servers, w.server_id)?.name || null,
+        last_backup_at: w.recent_backups?.[0]?.log?.backup_at || null,
+        last_backup_status: w.recent_backups?.[0]?.log?.status || null,
+      })),
+  })],
+  ['get', /^\/restore\/backups$/, (m, p) => {
+    const website = findById(db.websites, Number(p.website_id))
+    if (!website) return { data: [] }
+    const days = RANGE_DAYS[p.range] || 30
+    const since = Date.now() - days * 86400000
+
+    const groups = {}
+    db.logs
+      .filter((l) => l.website_id === website.id && new Date(l.backup_at).getTime() >= since)
+      .sort((a, b) => new Date(b.backup_at) - new Date(a.backup_at) || b.id - a.id)
+      .forEach((l) => {
+        const date = localDate(l.backup_at)
+        const latest = latestUpload(l)
+        if (!groups[date]) groups[date] = []
+        groups[date].push({
+          backup_log_id: l.id,
+          label: fileLabel(l, website),
+          type: fileType(l.filename),
+          filename: l.filename,
+          full_path: l.full_path,
+          size: l.size,
+          backup_at: l.backup_at,
+          restorable: !!latest,
+          latest_upload: latest ? {
+            id: latest.id,
+            storage_name: latest.storage_name,
+            storage_type: latest.storage_type,
+            remote_path: latest.remote_path,
+            uploaded_at: latest.finished_at || null,
+          } : null,
+        })
+      })
+
+    return {
+      data: Object.keys(groups).sort().reverse().map((date) => ({
+        date,
+        total_count: groups[date].length,
+        restorable_count: groups[date].filter((f) => f.restorable).length,
+        files: groups[date],
+      })),
+    }
+  }],
+  ['post', /^\/restore$/, (m, p, body) => {
+    const results = {}
+    const skipped = []
+    ;[].concat(body?.backup_log_ids || []).map(Number).forEach((id) => {
+      const log = findById(db.logs, id)
+      if (!log) { skipped.push({ backup_log_id: id, reason: '备份记录不存在' }); return }
+      const upload = latestUpload(log)
+      if (!upload) { skipped.push({ backup_log_id: log.id, reason: '没有成功上传的云端副本，无法恢复' }); return }
+      const server = findById(db.servers, log.server_id)
+      if (!server) { skipped.push({ backup_log_id: log.id, reason: '找不到所属服务器，无法下发指令' }); return }
+      const localDir = log.full_path ? log.full_path.replace(/\/[^/]+$/, '') : ''
+      if (!localDir || localDir === '.') { skipped.push({ backup_log_id: log.id, reason: '备份记录缺少本地路径，无法定位恢复目录' }); return }
+      // 去重：同一 upload 已有进行中的恢复命令则跳过该文件（不做服务器级 409）
+      const conflict = db.restoreCommands.some((c) =>
+        c.params.upload_id === upload.id && (c.status === 'pending' || c.status === 'dispatched'))
+      if (conflict) { skipped.push({ backup_log_id: log.id, reason: '该文件已有恢复任务在进行中' }); return }
+
+      const cmd = {
+        id: nextId('cmd'),
+        server_id: server.id,
+        type: 'restore',
+        status: 'pending',
+        output: null,
+        error: null,
+        completed_at: null,
+        params: {
+          backup_log_id: log.id,
+          upload_id: upload.id,
+          remote_path: upload.remote_path,
+          local_dir: localDir,
+          filename: upload.remote_path.split('/').pop(),
+        },
+      }
+      db.restoreCommands.push(cmd)
+      scheduleRestore(cmd)
+      results[String(log.id)] = {
+        command_id: cmd.id,
+        status: cmd.status,
+        filename: cmd.params.filename,
+        local_dir: localDir,
+      }
+    })
+
+    if (!Object.keys(results).length) return { message: '没有可下发的恢复任务', skipped }
+    return {
+      message: `已下发 ${Object.keys(results).length} 个恢复指令，Agent 将在下次心跳（≤60s）起陆续执行`,
+      data: results,
+      skipped,
+    }
+  }],
+  ['get', /^\/restore\/status$/, (m, p) => {
+    const ids = [].concat(p.backup_log_ids || []).map(Number).filter(Boolean)
+    const out = {}
+    db.restoreCommands
+      .slice()
+      .sort((a, b) => b.id - a.id)
+      .forEach((c) => {
+        const logId = String(c.params.backup_log_id)
+        if (!ids.includes(Number(logId)) || out[logId]) return
+        out[logId] = {
+          status: c.status,
+          output: c.output,
+          error: c.error,
+          command_id: c.id,
+          upload_id: c.params.upload_id,
+          completed_at: c.completed_at,
+        }
+      })
+    return { data: out }
   }],
 
   /* ---------- 资源池 ---------- */
