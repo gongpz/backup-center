@@ -236,7 +236,7 @@ html.dark {
   --bc-danger:  #e76a6e;
   --bc-info:    #8098f0;
   --bc-brand-warm: #d9a45e;
-  --bc-on-accent: var(--bc-on-accent);
+  --bc-on-accent: #08131a;
 
   --bc-success-bg: rgba(63, 190, 139, .14);  --bc-success-border: rgba(63, 190, 139, .30);
   --bc-warning-bg: rgba(217, 154, 62, .14);  --bc-warning-border: rgba(217, 154, 62, .30);
@@ -352,6 +352,7 @@ a { color: inherit; text-decoration: none; }
   transition: box-shadow var(--bc-dur-slow) var(--bc-ease-out),
               border-color var(--bc-dur) var(--bc-ease),
               background-color .35s var(--bc-ease),
+              transform var(--bc-dur) var(--bc-ease),
               color .25s var(--bc-ease);
 }
 /* 可交互卡片才允许悬浮抬升（纯展示卡不加，避免整页抖动） */
