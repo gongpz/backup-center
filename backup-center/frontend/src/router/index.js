@@ -62,7 +62,8 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  // 部署到子路径（如 GitHub Pages 的 /backup-center/）时路由不会错位
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 

@@ -10,6 +10,8 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
+const isDemo = import.meta.env.VITE_DEMO === '1'
+
 const formRef = ref(null)
 const loading = ref(false)
 const checking = ref(true)
@@ -147,6 +149,7 @@ const onSubmit = () => {
             {{ needSetup ? '创建管理员' : '登 录' }}
           </el-button>
         </el-form-item>
+        <p v-if="isDemo" class="demo-tip">演示环境 · 任意用户名与密码均可登录</p>
       </el-form>
     </div>
     <div class="footer-tip">© Backup Center — 备份管理中心</div>
@@ -211,6 +214,12 @@ const onSubmit = () => {
 }
 .tip {
   margin-top: 10px;
+  text-align: center;
+  color: var(--bc-text-placeholder);
+  font-size: 12px;
+}
+.demo-tip {
+  margin: -4px 0 0;
   text-align: center;
   color: var(--bc-text-placeholder);
   font-size: 12px;

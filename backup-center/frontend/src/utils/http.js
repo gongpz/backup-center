@@ -44,4 +44,9 @@ http.interceptors.response.use(
   },
 )
 
+// 演示模式：用浏览器内 mock 接管全部请求（动态 import —— 生产构建时该分支为死代码，mock 不进包）
+if (import.meta.env.VITE_DEMO === '1') {
+  http.defaults.adapter = (config) => import('@/demo/mock').then((m) => m.mockAdapter(config))
+}
+
 export default http
