@@ -71,10 +71,19 @@ INTERACTED=0
 BC_ACCESS="${BC_ACCESS:-${BC_DOMAIN:-}}"
 if [ -z "$BC_ACCESS" ]; then
     echo "第 1 步：访问地址"
-    echo "  · 域名示例：bak.example.com（需要 A 记录先指到本机）"
-    echo "  · IP 示例：1.2.3.4"
-    _read_tty BC_ACCESS "输入你的域名或 IP"
-    INTERACTED=1
+    # 自动探测本机公网 IP：一键部署不再要求手输（探测失败才退回提问）
+    PUB_IP="$(curl -fsS -m 5 https://api.ipify.org 2>/dev/null || curl -fsS -m 5 https://ifconfig.me 2>/dev/null || true)"
+    if [ -n "$PUB_IP" ]; then
+        BC_ACCESS="$PUB_IP"
+        echo "  → 自动使用本机公网 IP：$BC_ACCESS"
+        echo "  （如需绑定域名：Ctrl+C 中止，改用 BC_ACCESS=你的域名 重跑本脚本）"
+    else
+        echo "  · 域名示例：bak.example.com（需要 A 记录先指到本机）"
+        echo "  · IP 示例：1.2.3.4"
+        echo "  （未能自动探测公网 IP，请手动输入）"
+        _read_tty BC_ACCESS "输入你的域名或 IP"
+        INTERACTED=1
+    fi
 fi
 [ -n "$BC_ACCESS" ] || die "访问地址不能为空"
 
