@@ -16,6 +16,7 @@ class AgentCommand extends Model
     public const TYPE_SYNC_NOW = 'sync_now';
     public const TYPE_RESTORE  = 'restore';
     public const TYPE_BIND_ROOT = 'bind_root';
+    public const TYPE_SELF_BACKUP = 'self_backup';
 
     protected $fillable = [
         'server_id',

@@ -124,37 +124,68 @@ class Website extends Model
                 ];
                 continue;
             }
-            $failed = $log->uploads
-                ->filter(fn ($u) => $u->status === BackupUpload::STATUS_FAILED)
-                ->map(fn ($u) => [
-                    'storage_id'   => $u->storage_id,
-                    'storage_name' => $u->storage?->name ?: '（存储已删除）',
-                    'error'        => $u->error_message,
-                ])->values()->all();
-            $succeeded = $log->uploads
-                ->filter(fn ($u) => $u->status === BackupUpload::STATUS_UPLOADED)
-                ->map(fn ($u) => [
-                    'storage_id'   => $u->storage_id,
-                    'storage_name' => $u->storage?->name ?: '（存储已删除）',
-                ])->values()->all();
             $result[] = [
                 'label' => $label,
                 'path'  => $path,
-                'log'   => [
-                    'id'            => $log->id,
-                    'filename'      => $log->filename,
-                    'status'        => $log->status,
-                    'upload_status' => $log->upload_status,
-                    'size'          => $log->size,
-                    'backup_at'     => $log->backup_at?->toIso8601String(),
-                    // synced_at = Center 收到 Agent 上报的时间（DB 记录创建时间）
-                    // 与 backup_at 区分：backup_at = 源文件 mtime（宝塔打包时间），synced_at = 同步到 Center 的时间
-                    'synced_at'     => $log->created_at?->toIso8601String(),
-                    'succeeded'     => $succeeded,
-                    'failed'        => $failed,
-                ],
+                'log'   => $this->buildLogSummary($log),
             ];
         }
         return $result;
+    }
+
+    /**
+     * 把一条 BackupLog 整理成前端展示用的摘要（成功/失败的上传、时间等）。
+     * recentBackupsByPath 与 recentSelfBackups 共用。
+     */
+    private function buildLogSummary(\App\Models\BackupLog $log): array
+    {
+        $failed = $log->uploads
+            ->filter(fn ($u) => $u->status === \App\Models\BackupUpload::STATUS_FAILED)
+            ->map(fn ($u) => [
+                'storage_id'   => $u->storage_id,
+                'storage_name' => $u->storage?->name ?: '（存储已删除）',
+                'error'        => $u->error_message,
+            ])->values()->all();
+        $succeeded = $log->uploads
+            ->filter(fn ($u) => $u->status === \App\Models\BackupUpload::STATUS_UPLOADED)
+            ->map(fn ($u) => [
+                'storage_id'   => $u->storage_id,
+                'storage_name' => $u->storage?->name ?: '（存储已删除）',
+            ])->values()->all();
+        return [
+            'id'            => $log->id,
+            'filename'      => $log->filename,
+            'status'        => $log->status,
+            'upload_status' => $log->upload_status,
+            'size'          => $log->size,
+            'backup_at'     => $log->backup_at?->toIso8601String(),
+            'synced_at'     => $log->created_at?->toIso8601String(),
+            'succeeded'     => $succeeded,
+            'failed'        => $failed,
+        ];
+    }
+
+    /**
+     * 自主压缩站点（backup_source=self）的最近一次产物：网站目录(-web-.tar.gz) 与 数据库(-db-.sql.gz) 各取最新一条。
+     * 前端网站列表「最近备份」列在 self 模式下回落到这里展示。
+     */
+    public function recentSelfBackups(): array
+    {
+        $webLog = $this->backupLogs()
+            ->where('filename', 'like', '%-web-%.tar.gz')
+            ->orderByDesc('backup_at')->orderByDesc('id')
+            ->with(['uploads.storage:id,name,type'])->first();
+        $dbLog = $this->backupLogs()
+            ->where('filename', 'like', '%-db-%.sql.gz')
+            ->orderByDesc('backup_at')->orderByDesc('id')
+            ->with(['uploads.storage:id,name,type'])->first();
+        $out = [];
+        if ($webLog) {
+            $out[] = ['label' => '网站目录', 'path' => $this->web_root ?: '', 'log' => $this->buildLogSummary($webLog)];
+        }
+        if ($dbLog) {
+            $out[] = ['label' => '数据库', 'path' => '（数据库）', 'log' => $this->buildLogSummary($dbLog)];
+        }
+        return $out;
     }
 }

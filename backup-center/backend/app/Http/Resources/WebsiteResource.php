@@ -61,6 +61,7 @@ class WebsiteResource extends JsonResource
             'last_backup_size' => $this->last_backup_size,
             'last_backup_filename' => $this->last_backup_filename,
             'recent_backups' => $this->recentBackupsByPath(),
+            'recent_self_backups' => $this->when($this->backup_source === \App\Models\Website::BACKUP_SOURCE_SELF, fn () => $this->recentSelfBackups()),
 
             'created_at' => $this->created_at?->toIso8601String(),
         ];

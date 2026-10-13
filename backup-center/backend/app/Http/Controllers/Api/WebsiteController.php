@@ -40,6 +40,10 @@ class WebsiteController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $this->validated($request);
+        // 空密码表示「不修改」，避免把 db_password 清空
+        if (array_key_exists('db_password', $data) && ($data['db_password'] === '' || $data['db_password'] === null)) {
+            unset($data['db_password']);
+        }
         $storageIds = $this->extractStorageIds($data);
 
         $website = Website::create($data);
@@ -67,6 +71,10 @@ class WebsiteController extends Controller
     public function update(Website $website, Request $request): WebsiteResource
     {
         $data = $this->validated($request);
+        // 空密码表示「不修改」，避免把 db_password 清空
+        if (array_key_exists('db_password', $data) && ($data['db_password'] === '' || $data['db_password'] === null)) {
+            unset($data['db_password']);
+        }
         $storageIds = $this->extractStorageIds($data);
 
         $website->update($data);
@@ -116,6 +124,48 @@ class WebsiteController extends Controller
 
         return response()->json([
             'message'    => '已下发同步指令，最长 60 秒后 Agent 会扫描并上传未同步的备份',
+            'command_id' => $cmd->id,
+        ]);
+    }
+
+    /**
+     * 自主压缩备份：立刻让该网站所属服务器的 Agent 打包网站目录 + 导出数据库并上传（P3）。
+     * 走 agent_commands 通道（type=self_backup），下一个心跳（≤60s）Agent 会收到。
+     */
+    public function selfBackupNow(Website $website): JsonResponse
+    {
+        $server = $website->server;
+        if (! $server || $server->connect_type !== \App\Models\Server::CONNECT_AGENT) {
+            return response()->json(['message' => '该网站所属服务器不是 Agent 模式，无法自主备份'], 422);
+        }
+
+        if ($website->backup_source !== Website::BACKUP_SOURCE_SELF) {
+            return response()->json(['message' => '该网站未启用自主压缩备份（backup_source=self）'], 422);
+        }
+
+        // 复用一次即可：如已有 pending/dispatched 的 self_backup（同一网站），直接返回它
+        $existing = \App\Models\AgentCommand::where('server_id', $server->id)
+            ->where('type', \App\Models\AgentCommand::TYPE_SELF_BACKUP)
+            ->whereIn('status', [\App\Models\AgentCommand::STATUS_PENDING, \App\Models\AgentCommand::STATUS_DISPATCHED])
+            ->whereJsonContains('params', ['website_id' => $website->id])
+            ->latest('id')
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'message'    => '已有自主备份任务在队列中，最长 60 秒内 Agent 会执行',
+                'command_id' => $existing->id,
+            ]);
+        }
+
+        $cmd = \App\Models\AgentCommand::create([
+            'server_id'   => $server->id,
+            'type'        => \App\Models\AgentCommand::TYPE_SELF_BACKUP,
+            'params'      => ['website_id' => $website->id, 'website_name' => $website->name],
+            'status'      => \App\Models\AgentCommand::STATUS_PENDING,
+        ]);
+
+        return response()->json([
+            'message'    => '已下发自主备份指令，最长 60 秒后 Agent 会执行（打包网站目录 + 导出数据库并上传）',
             'command_id' => $cmd->id,
         ]);
     }
@@ -184,7 +234,7 @@ class WebsiteController extends Controller
             'server_id' => ['required', 'integer', Rule::exists('servers', 'id')],
             'name' => ['required', 'string', 'max:64'],
             'domain' => ['nullable', 'string', 'max:128'],
-            'backup_paths' => ['required', 'array', 'min:1', 'max:20'],
+            'backup_paths' => ['required_if:backup_source,external', 'array', 'max:20'],
             'backup_paths.*.label' => ['nullable', 'string', 'max:64'],
             'backup_paths.*.path' => ['required', 'string', 'max:255'],
             'backup_paths.*.pattern' => ['nullable', 'string', 'max:128'],
@@ -195,6 +245,13 @@ class WebsiteController extends Controller
             // 备份来源 / 恢复模式（P1 仅存值，self/advanced 的执行能力在 P3/P4 落地）
             'backup_source' => ['nullable', 'string', Rule::in([Website::BACKUP_SOURCE_EXTERNAL, Website::BACKUP_SOURCE_SELF])],
             'restore_mode' => ['nullable', 'string', Rule::in([Website::RESTORE_MODE_LITE, Website::RESTORE_MODE_ADVANCED])],
+            'web_root' => ['nullable', 'string', 'max:255'],
+            'db_type'  => ['nullable', 'string', Rule::in([Website::DB_TYPE_MYSQL, Website::DB_TYPE_POSTGRESQL])],
+            'db_host'  => ['nullable', 'string', 'max:255'],
+            'db_port'  => ['nullable', 'integer', 'min:1', 'max:65535'],
+            'db_name'  => ['nullable', 'string', 'max:255'],
+            'db_user'  => ['nullable', 'string', 'max:255'],
+            'db_password' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', Rule::in([Website::STATUS_ENABLED, Website::STATUS_DISABLED])],
             'remark' => ['nullable', 'string', 'max:500'],
             'storage_ids' => ['nullable', 'array'],

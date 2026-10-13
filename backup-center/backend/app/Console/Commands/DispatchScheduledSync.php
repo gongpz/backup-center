@@ -53,6 +53,31 @@ class DispatchScheduledSync extends Command
             });
         }
 
+        // 自主压缩站点（backup_source=self）：按各自 schedule 派发 self_backup（逐站，不按 server 去重）
+        $selfSites = Website::where('backup_source', Website::BACKUP_SOURCE_SELF)
+            ->where('status', 'enabled')
+            ->where('schedule', $currentHM)
+            ->with('server')
+            ->get();
+        foreach ($selfSites as $w) {
+            if (! $w->server || $w->server->connect_type !== \App\Models\Server::CONNECT_AGENT) {
+                continue;
+            }
+            $recent = \App\Models\AgentCommand::where('server_id', $w->server_id)
+                ->where('type', \App\Models\AgentCommand::TYPE_SELF_BACKUP)
+                ->whereJsonContains('params', ['website_id' => $w->id])
+                ->where('created_at', '>', now()->subSeconds(60))
+                ->exists();
+            if ($recent) continue;
+            \App\Models\AgentCommand::create([
+                'server_id' => $w->server_id,
+                'type'      => \App\Models\AgentCommand::TYPE_SELF_BACKUP,
+                'status'    => \App\Models\AgentCommand::STATUS_PENDING,
+                'params'    => ['website_id' => $w->id, 'website_name' => $w->name],
+            ]);
+            $dispatched++;
+        }
+
         if ($dispatched > 0) {
             $this->info("已派发 {$dispatched} 条 sync_now（涉及 " . $websites->count() . " 个网站，触发时刻 {$currentHM}）");
         }
