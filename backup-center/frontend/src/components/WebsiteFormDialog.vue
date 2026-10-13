@@ -420,7 +420,7 @@ const onSubmit = () => {
             <el-radio value="lite">轻便恢复</el-radio>
             <el-radio value="advanced">
               高级恢复
-              <span class="mode-tag mode-tag-pending">P4</span>
+              <span class="mode-tag mode-tag-ready">已支持</span>
             </el-radio>
           </el-radio-group>
         </div>
@@ -430,7 +430,7 @@ const onSubmit = () => {
               远程拉取备份文件回到服务器备份目录，由管理员手动解压、导入数据库。
             </template>
             <template v-else>
-              系统全自主恢复：按绑定的网站根目录自动解压覆盖、自动导入数据库，无需人工干预（后续版本支持）。
+              系统全自主恢复：按绑定的网站根目录自动解压覆盖、自动重建并导入数据库，无需人工干预。
             </template>
           </span>
         </div>
@@ -575,6 +575,11 @@ const onSubmit = () => {
   background: var(--bc-warning-bg, #fdf6ec);
   border: 1px solid var(--bc-warning-border, #f5dab1);
   color: var(--bc-warning);
+}
+.mode-tag-ready {
+  background: var(--bc-success-bg, #eaf7f0);
+  border: 1px solid var(--bc-success-border, #bfe6d0);
+  color: var(--bc-success, #2f9e63);
 }
 
 /* --- 备份目录 repeater --- */

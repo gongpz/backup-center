@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Download } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -11,8 +12,12 @@ const props = defineProps({
   totalCount: { type: Number, default: 0 },
   // POST 中（按钮 loading，防止重复下发）
   sending: { type: Boolean, default: false },
+  // 恢复模式：lite=拉回备份目录手动恢复；advanced=系统全自动覆盖线上
+  restoreMode: { type: String, default: 'lite' },
 })
 const emit = defineEmits(['update:modelValue', 'confirm'])
+
+const isAdvanced = computed(() => props.restoreMode === 'advanced')
 
 const total = computed(() => props.files.reduce((s, f) => s + (f.size || 0), 0))
 const skippedCount = computed(() => {
@@ -30,6 +35,23 @@ const fmtSize = (bytes) => {
   }
   return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + ' ' + units[i]
 }
+
+// 高级恢复：先弹危险操作二次确认，用户确认后才真正下发；lite 直接下发
+const onConfirm = async () => {
+  if (isAdvanced.value) {
+    try {
+      await ElMessageBox.confirm(
+        '我已知晓将覆盖线上站点目录与数据库，系统已自动创建恢复前备份',
+        '危险操作确认',
+        { type: 'warning', confirmButtonText: '仍要恢复' },
+      )
+    } catch (_) {
+      // 用户取消二次确认，不下发
+      return
+    }
+  }
+  emit('confirm')
+}
 </script>
 
 <template>
@@ -42,8 +64,14 @@ const fmtSize = (bytes) => {
   >
     <!-- 顶部警告条：复用 WebsiteBindDialog .bind-notice 视觉（scoped 已复制过来） -->
     <div class="bind-notice">
-      <div class="confirm-lead">将把所选备份文件下载回服务器原备份目录</div>
-      <div class="confirm-bold">不会自动解压、不会自动导入数据库——下载完成后需手动处理</div>
+      <template v-if="isAdvanced">
+        <div class="confirm-lead">系统将自动解压覆盖网站根目录、自动重建并导入数据库</div>
+        <div class="confirm-bold">将覆盖当前线上站点，无需手动处理——系统已自动创建恢复前备份</div>
+      </template>
+      <template v-else>
+        <div class="confirm-lead">将把所选备份文件下载回服务器原备份目录</div>
+        <div class="confirm-bold">不会自动解压、不会自动导入数据库——下载完成后需手动处理</div>
+      </template>
     </div>
 
     <div class="confirm-meta">
@@ -70,7 +98,9 @@ const fmtSize = (bytes) => {
 
     <template #footer>
       <el-button :disabled="sending" @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="warning" :icon="Download" :loading="sending" @click="emit('confirm')">确认恢复</el-button>
+      <el-button type="warning" :icon="Download" :loading="sending" @click="onConfirm">
+        {{ isAdvanced ? '高级恢复（覆盖线上）' : '确认恢复' }}
+      </el-button>
     </template>
   </el-dialog>
 </template>

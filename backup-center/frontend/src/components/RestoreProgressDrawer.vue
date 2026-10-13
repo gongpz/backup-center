@@ -9,6 +9,8 @@ const props = defineProps({
   statusMap: { type: Object, default: () => ({}) },
   // 已执行秒数（计时器在 Restore.vue）
   elapsed: { type: Number, default: 0 },
+  // 恢复模式：advanced 时在顶部加多步提示（可选）
+  restoreMode: { type: String, default: 'lite' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -45,6 +47,8 @@ const allTerminal = computed(
     <!-- 首屏明示：关闭抽屉不取消任务 -->
     <div class="bind-notice">关闭抽屉不会取消任务，Agent 将继续执行，可在本页查看实时状态</div>
 
+    <div v-if="restoreMode === 'advanced'" class="adv-hint">高级恢复：按 预备份→解压→导入 多步执行</div>
+
     <div class="drawer-timer">已执行 <b>{{ elapsed }}</b> 秒</div>
 
     <div class="drawer-files">
@@ -74,6 +78,16 @@ const allTerminal = computed(
   margin-bottom: 14px;
   font-size: 12px;
   color: var(--bc-warning);
+  line-height: 1.7;
+}
+.adv-hint {
+  background: var(--bc-info-bg, #ecf5ff);
+  border: 1px solid var(--bc-info-border, #d9ecff);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--bc-info, #409eff);
   line-height: 1.7;
 }
 .mono { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }

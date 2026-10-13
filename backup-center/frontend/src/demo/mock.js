@@ -96,6 +96,11 @@ const randToken = (n = 32) => {
   return Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// 提前声明：db.websites 的顶层初始化 IIFE（第 ~255 行）会调用二者，
+// 若定义在其后会在模块直引（如 node 校验）时触发 TDZ ReferenceError。
+const nextId = (key) => db.seq[key]++
+const findById = (list, id) => list.find((x) => String(x.id) === String(id))
+
 const db = {
   seq: { server: 7, website: 9, storage: 5, log: 15833, pool: 2, cmd: 100 },
   latestAgentVersion: '0.14.0',
@@ -115,7 +120,7 @@ const db = {
   websites: [
     { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站（自主压缩演示）', storage_ids: [1, 2], backup_source: 'self', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'main_site', db_user: 'root', db_password_set: true },
     { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: '/var/www/shop', root_bound_at: hours(48), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'shop_main', db_user: 'root', db_password_set: true },
     { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
@@ -291,7 +296,6 @@ db.logs = [
 /* ============================================================
    通用工具
    ============================================================ */
-const nextId = (key) => db.seq[key]++
 
 const paginate = (items, params) => {
   const page = Number(params.page) || 1
@@ -308,8 +312,6 @@ const matchKeyword = (kw, ...fields) => {
   const k = String(kw).toLowerCase()
   return fields.filter(Boolean).some((f) => String(f).toLowerCase().includes(k))
 }
-
-const findById = (list, id) => list.find((x) => String(x.id) === String(id))
 
 const removeById = (list, id) => {
   const i = list.findIndex((x) => String(x.id) === String(id))
@@ -383,14 +385,29 @@ const buildRecentSelfBackups = (website) => {
 // 恢复命令队列：pending → dispatched(6s) → success(14s)，模拟 Agent 每次心跳逐条执行
 db.restoreCommands = []
 const scheduleRestore = (cmd) => {
+  const advanced = cmd.params.restore_mode === 'advanced'
+  const isDb = /-db-.*\.sql\.gz$/.test(cmd.params.filename)
+  const finish = () => {
+    if (cmd.status !== 'pending' && cmd.status !== 'dispatched') return
+    cmd.status = 'success'
+    cmd.completed_at = new Date().toISOString()
+    cmd.output = advanced
+      ? (isDb
+        ? `高级恢复完成：数据库已重建导入（预备份 ${cmd.params.local_dir}.bak-*.sql）`
+        : `高级恢复完成：网站目录已覆盖（预备份 ${cmd.params.local_dir}.bak-*.tar.gz）`)
+      : `已恢复 ${cmd.params.filename} → ${cmd.params.local_dir}`
+  }
   setTimeout(() => { if (cmd.status === 'pending') cmd.status = 'dispatched' }, 6000)
-  setTimeout(() => {
-    if (cmd.status === 'pending' || cmd.status === 'dispatched') {
-      cmd.status = 'success'
-      cmd.output = `已恢复 ${cmd.params.filename} → ${cmd.params.local_dir}`
-      cmd.completed_at = new Date().toISOString()
-    }
-  }, 14000)
+  if (!advanced) {
+    setTimeout(finish, 14000)
+    return
+  }
+  // advanced：模拟 Agent 的多步执行（预备份 → 解压/导库），进度经 output 逐步透出
+  const steps = isDb
+    ? ['[预备份] 数据库 → ' + cmd.params.local_dir + '.bak-*.sql', '[导入] 解压数据库归档…', '[导入] 重建并导入数据库…']
+    : ['[预备份] 网站目录 → ' + cmd.params.local_dir + '.bak-*.tar.gz', '[解压] 正在覆盖网站根目录…']
+  steps.forEach((s, i) => setTimeout(() => { if (cmd.status !== 'success') cmd.output = s }, 8000 + i * 5000))
+  setTimeout(finish, 8000 + steps.length * 5000)
 }
 
 /** Agent 升级：下发后模拟「待执行 → 执行中 → 成功」的状态推进 */
@@ -738,6 +755,8 @@ const routes = [
         name: w.name,
         domain: w.domain,
         server_name: w.server?.name || findById(db.servers, w.server_id)?.name || null,
+        restore_mode: w.restore_mode || 'lite',
+        web_root: w.web_root || null,
         last_backup_at: w.recent_backups?.[0]?.log?.backup_at || null,
         last_backup_status: w.recent_backups?.[0]?.log?.status || null,
       })),
@@ -794,13 +813,20 @@ const routes = [
       if (!upload) { skipped.push({ backup_log_id: log.id, reason: '没有成功上传的云端副本，无法恢复' }); return }
       const server = findById(db.servers, log.server_id)
       if (!server) { skipped.push({ backup_log_id: log.id, reason: '找不到所属服务器，无法下发指令' }); return }
-      const localDir = log.full_path ? log.full_path.replace(/\/[^/]+$/, '') : ''
-      if (!localDir || localDir === '.') { skipped.push({ backup_log_id: log.id, reason: '备份记录缺少本地路径，无法定位恢复目录' }); return }
+      const website = findById(db.websites, log.website_id)
+      const isAdvanced = website?.restore_mode === 'advanced'
+      // advanced 恢复目标为线上 web_root（Agent 先下载到中转目录再覆盖），lite 保持原备份目录
+      const localDir = isAdvanced
+        ? (website?.web_root || '/var/www/html')
+        : (log.full_path ? log.full_path.replace(/\/[^/]+$/, '') : '')
+      if (!isAdvanced && (!localDir || localDir === '.')) { skipped.push({ backup_log_id: log.id, reason: '备份记录缺少本地路径，无法定位恢复目录' }); return }
       // 去重：同一 upload 已有进行中的恢复命令则跳过该文件（不做服务器级 409）
       const conflict = db.restoreCommands.some((c) =>
-        c.params.upload_id === upload.id && (c.status === 'pending' || c.status === 'dispatched'))
+        c.params.upload_id === upload.id && (c.params.restore_mode || 'lite') === (isAdvanced ? 'advanced' : 'lite') &&
+        (c.status === 'pending' || c.status === 'dispatched'))
       if (conflict) { skipped.push({ backup_log_id: log.id, reason: '该文件已有恢复任务在进行中' }); return }
 
+      const filename = upload.remote_path.split('/').pop()
       const cmd = {
         id: nextId('cmd'),
         server_id: server.id,
@@ -814,7 +840,8 @@ const routes = [
           upload_id: upload.id,
           remote_path: upload.remote_path,
           local_dir: localDir,
-          filename: upload.remote_path.split('/').pop(),
+          filename,
+          ...(isAdvanced ? { restore_mode: 'advanced', website_id: website.id } : {}),
         },
       }
       db.restoreCommands.push(cmd)
@@ -822,7 +849,7 @@ const routes = [
       results[String(log.id)] = {
         command_id: cmd.id,
         status: cmd.status,
-        filename: cmd.params.filename,
+        filename,
         local_dir: localDir,
       }
     })

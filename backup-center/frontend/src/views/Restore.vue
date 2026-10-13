@@ -98,12 +98,19 @@ const selectedFiles = computed(() => (selected.value?.files || []).filter((f) =>
 const selectedSize = computed(() => selectedFiles.value.reduce((s, f) => s + (f.size || 0), 0))
 const selectedDateLabel = computed(() => (selected.value ? fmtGroupDate(selected.value.date) : ''))
 const confirmFiles = computed(() =>
-  selectedFiles.value.map((f) => ({
-    backup_log_id: f.backup_log_id,
-    filename: f.filename,
-    local_dir: dirname(f.full_path) || '—',
-    size: f.size,
-  })),
+  selectedFiles.value.map((f) => {
+    // advanced 模式恢复目标为线上 web_root（覆盖线上）；lite 保持 dirname(full_path)
+    const localDir =
+      currentWebsite.value?.restore_mode === 'advanced'
+        ? (currentWebsite.value?.web_root || '—')
+        : (dirname(f.full_path) || '—')
+    return {
+      backup_log_id: f.backup_log_id,
+      filename: f.filename,
+      local_dir: localDir,
+      size: f.size,
+    }
+  }),
 )
 const activeIds = computed(() => Object.keys(activeFiles))
 const activeFilesArr = computed(() => activeIds.value.map((id) => ({ backup_log_id: Number(id), ...activeFiles[id] })))
@@ -279,7 +286,14 @@ const fileTitle = (f) => {
     <div class="toolbar">
       <div>
         <h2 class="page-h">数据恢复</h2>
-        <p class="page-sub">把云端备份取回服务器原备份目录 · 仅下载归档，不解压、不导库</p>
+        <p class="page-sub">
+          <template v-if="currentWebsite && currentWebsite.restore_mode === 'advanced'">
+            系统将自动解压覆盖网站根目录并重建导入数据库（覆盖线上站点）
+          </template>
+          <template v-else>
+            把云端备份取回服务器原备份目录 · 仅下载归档，不解压、不导库
+          </template>
+        </p>
       </div>
       <div class="actions">
         <el-button :icon="Refresh" :loading="listLoading" @click="loadGroups">刷新</el-button>
@@ -433,6 +447,7 @@ const fileTitle = (f) => {
       :date-label="selectedDateLabel"
       :total-count="selected?.total_count || 0"
       :sending="restoreSending"
+      :restore-mode="currentWebsite?.restore_mode || 'lite'"
       @confirm="onConfirmRestore"
     />
     <RestoreProgressDrawer
@@ -440,6 +455,7 @@ const fileTitle = (f) => {
       :files="activeFilesArr"
       :status-map="statusMap"
       :elapsed="elapsed"
+      :restore-mode="currentWebsite?.restore_mode || 'lite'"
     />
   </div>
 </template>
