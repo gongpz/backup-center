@@ -3,7 +3,7 @@ import { systemApi } from '@/api/settings'
 
 export const useSystemStore = defineStore('system', {
   state: () => ({
-    systemName: 'Backup Center',
+    systemName: 'backup center',
     loaded: false,
   }),
   actions: {
@@ -11,7 +11,7 @@ export const useSystemStore = defineStore('system', {
       if (this.loaded && !force) return
       try {
         const d = await systemApi.get()
-        this.systemName = d.system_name || 'Backup Center'
+        this.systemName = d.system_name || 'backup center'
         document.title = `${this.systemName} - 备份管理中心`
         this.loaded = true
       } catch (_) {
@@ -19,7 +19,7 @@ export const useSystemStore = defineStore('system', {
       }
     },
     setName(name) {
-      this.systemName = name || 'Backup Center'
+      this.systemName = name || 'backup center'
       document.title = `${this.systemName} - 备份管理中心`
     },
   },

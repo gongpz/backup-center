@@ -18,7 +18,7 @@ return new class extends Migration
 
         // 默认值
         DB::table('system_settings')->insert([
-            ['key' => 'system_name', 'value' => 'Backup Center', 'created_at' => now(), 'updated_at' => now()],
+            ['key' => 'system_name', 'value' => 'backup center', 'created_at' => now(), 'updated_at' => now()],
         ]);
     }
 

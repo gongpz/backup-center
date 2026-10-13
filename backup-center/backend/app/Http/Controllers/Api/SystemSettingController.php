@@ -15,7 +15,7 @@ class SystemSettingController extends Controller
     {
         return response()->json([
             'data' => [
-                'system_name'                  => SystemSetting::get('system_name', 'Backup Center'),
+                'system_name'                  => SystemSetting::get('system_name', 'backup center'),
                 'system_backup_enabled'        => SystemSetting::get('system_backup_enabled', '0') === '1',
                 'system_backup_time'           => SystemSetting::get('system_backup_time', '03:00'),
                 'agent_mirror_url'             => $this->resolveAgentMirrorUrl(),

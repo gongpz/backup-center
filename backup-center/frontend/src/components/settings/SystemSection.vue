@@ -7,7 +7,7 @@ import { useSystemStore } from '@/stores/system'
 import { currentTheme, setTheme } from '@/utils/theme'
 
 const system = useSystemStore()
-const form = reactive({ system_name: 'Backup Center' })
+const form = reactive({ system_name: 'backup center' })
 const loading = ref(false)
 const saving = ref(false)
 
@@ -15,7 +15,7 @@ const load = async () => {
   loading.value = true
   try {
     const d = await systemApi.get()
-    form.system_name = d.system_name || 'Backup Center'
+    form.system_name = d.system_name || 'backup center'
   } finally { loading.value = false }
 }
 const save = async () => {

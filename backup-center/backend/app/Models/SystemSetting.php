@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * 通用 KV 系统设置。
- *   SystemSetting::get('system_name', 'Backup Center')
+ *   SystemSetting::get('system_name', 'backup center')
  *   SystemSetting::set('system_name', 'My Backup')
  */
 class SystemSetting extends Model
