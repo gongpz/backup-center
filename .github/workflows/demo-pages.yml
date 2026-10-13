@@ -1,0 +1,70 @@
+name: Demo Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backup-center/frontend/**'
+      - '.github/workflows/demo-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建演示站点
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backup-center/frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: backup-center/frontend
+        run: npm ci
+
+      # VITE_DEMO=1 → 前端启用内置演示数据（无后端也能点）
+      # --base=/backup-center/ → 适配 GitHub Pages 的子路径
+      - name: 构建（演示模式 + Pages 子路径）
+        working-directory: backup-center/frontend
+        env:
+          VITE_DEMO: '1'
+        run: npm run build -- --base=/backup-center/
+
+      # GitHub Pages 不支持 history 回退，复制一份 index.html 兜底
+      - name: SPA 回退页
+        working-directory: backup-center/frontend
+        run: cp dist/index.html dist/404.html
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: backup-center/frontend/dist
+
+  deploy:
+    name: 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4
