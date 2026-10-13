@@ -436,7 +436,7 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 	case "restore":
 		// 远程恢复（最小可用版）：把云端归档 rclone copy 回原本地目录，
 		// 不做解包 / 不自动导入数据库，由管理员手动处理（解压 tar / 导入 .sql）
-		output, err := performRestore(cmd, c)
+		output, err := performRestore(cmd, c, scn)
 		if err != nil {
 			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
 			_ = c.CommandResult(&client.CommandResultRequest{
@@ -502,7 +502,7 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 // 因此无需再解析 storage_id，直接复用 rclone.conf 里的 bc_<id> remote 即可。
 // 仅下载归档，不自动解包 / 不自动导入数据库。
 // 长任务期间每 5s 通过 c.CommandProgress 上报 rclone 最新进度行（status 保持 dispatched）。
-func performRestore(cmd *client.PendingCommand, c *client.Client) (string, error) {
+func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.Scanner) (string, error) {
 	p := cmd.Params
 	if p == nil {
 		return "", fmt.Errorf("恢复指令缺少参数")
@@ -582,7 +582,219 @@ func performRestore(cmd *client.PendingCommand, c *client.Client) (string, error
 		return "", fmt.Errorf("rclone 恢复失败: %s", msg)
 	}
 
+	// ---------- advanced 模式：下载成功后自动预备份 + 覆盖 + 重建导入 ----------
+	if fmt.Sprint(cmd.Params["restore_mode"]) == "advanced" {
+		if strings.Contains(filename, "-web-") && strings.HasSuffix(filename, ".tar.gz") {
+			siteID, perr := parseInt64Param(cmd.Params["website_id"])
+			if perr != nil {
+				return "", fmt.Errorf("advanced 恢复 website_id 解析失败: %w", perr)
+			}
+			w, ok := scn.WebsiteByID(siteID)
+			if !ok {
+				return "", fmt.Errorf("advanced 恢复未找到网站配置（web_root/db）")
+			}
+			bak, err := performAdvancedWebRestore(cmd, c, w, dest)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("高级恢复完成：网站目录已覆盖（预备份 %s）", bak), nil
+		}
+		if strings.Contains(filename, "-db-") && strings.HasSuffix(filename, ".sql.gz") {
+			siteID, perr := parseInt64Param(cmd.Params["website_id"])
+			if perr != nil {
+				return "", fmt.Errorf("advanced 恢复 website_id 解析失败: %w", perr)
+			}
+			w, ok := scn.WebsiteByID(siteID)
+			if !ok {
+				return "", fmt.Errorf("advanced 恢复未找到网站配置（web_root/db）")
+			}
+			bak, err := performAdvancedDBRestore(cmd, c, w, dest)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("高级恢复完成：数据库已重建导入（预备份 %s）", bak), nil
+		}
+		// 非 -web-/-db- 文件名：退回 lite 行为（仅下载留档）
+		_ = c.CommandProgress(&client.CommandProgressRequest{
+			CommandID: cmd.ID,
+			Output:    "[提示] advanced 模式未识别文件类型，按 lite 处理（仅下载留档）",
+		})
+	}
+
 	return fmt.Sprintf("已恢复到本地: %s", dest), nil
+}
+
+// performAdvancedWebRestore 对 advanced 模式的网站归档执行"预备份 + 覆盖解压"。
+// 返回预备份路径，供调用方在成功输出 / 失败回滚提示中使用。
+func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w client.Website, dest string) (string, error) {
+	if w.WebRoot == "" {
+		return "", fmt.Errorf("网站未配置 web_root，无法执行目录恢复")
+	}
+	parent := filepath.Dir(w.WebRoot)
+	base := filepath.Base(w.WebRoot)
+	ts := time.Now().Format("20060102-150405")
+	bakPath := w.WebRoot + ".bak-" + ts + ".tar.gz"
+
+	_ = c.CommandProgress(&client.CommandProgressRequest{
+		CommandID: cmd.ID,
+		Output:    "[预备份] 网站目录 → " + bakPath,
+	})
+	bc := exec.Command("tar", "-czf", bakPath, "-C", parent, base)
+	var berr strings.Builder
+	bc.Stderr = &berr
+	if err := bc.Run(); err != nil {
+		return "", fmt.Errorf("网站目录预备份失败: %v (%s)", err, strings.TrimSpace(berr.String()))
+	}
+
+	_ = c.CommandProgress(&client.CommandProgressRequest{
+		CommandID: cmd.ID,
+		Output:    "[解压] 正在覆盖网站根目录…",
+	})
+	xc := exec.Command("tar", "-xzf", dest, "-C", parent)
+	var xerr strings.Builder
+	xc.Stderr = &xerr
+	if err := xc.Run(); err != nil {
+		return bakPath, fmt.Errorf("网站目录解压覆盖失败: %v (%s)；可手动回滚: tar -xzf %s -C %s", err, strings.TrimSpace(xerr.String()), bakPath, parent)
+	}
+	return bakPath, nil
+}
+
+// performAdvancedDBRestore 对 advanced 模式的数据库归档执行"预备份(dump) + 解压 + DROP/CREATE + 导入"。
+// 返回预备份路径（.sql 文件），任一步失败均携带该路径以便管理员手动回滚。
+func performAdvancedDBRestore(cmd *client.PendingCommand, c *client.Client, w client.Website, dest string) (string, error) {
+	if w.DBType == "" || w.DBName == "" {
+		return "", fmt.Errorf("网站未配置数据库（db_type/db_name），无法执行数据库恢复")
+	}
+	ts := time.Now().Format("20060102-150405")
+	bakPath := w.DBName + ".bak-" + ts + ".sql"
+
+	tmpDir, err := os.MkdirTemp("", "bc-restore-db-")
+	if err != nil {
+		return "", fmt.Errorf("创建临时目录失败: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	tmpSQL := filepath.Join(tmpDir, "restore.sql")
+
+	// 1) 预备份：导出当前线上数据库
+	_ = c.CommandProgress(&client.CommandProgressRequest{
+		CommandID: cmd.ID,
+		Output:    "[预备份] 数据库 → " + bakPath,
+	})
+	if w.DBType == "mysql" {
+		cnfPath := filepath.Join(tmpDir, fmt.Sprintf("my-%d.cnf", os.Getpid()))
+		cnf := fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\n", w.DBUser, w.DBPassword, w.DBHost, dbPortOrDefault(w.DBPort, "mysql"))
+		if werr := os.WriteFile(cnfPath, []byte(cnf), 0600); werr != nil {
+			return "", fmt.Errorf("写入数据库配置失败: %w", werr)
+		}
+		dump := exec.Command("mysqldump", "--defaults-extra-file="+cnfPath, w.DBName)
+		if path, lerr := exec.LookPath("mariadb-dump"); lerr == nil {
+			dump = exec.Command(path, "--defaults-extra-file="+cnfPath, w.DBName)
+		}
+		outF, oerr := os.Create(bakPath)
+		if oerr != nil {
+			return "", fmt.Errorf("创建数据库预备份文件失败: %w", oerr)
+		}
+		dump.Stdout = outF
+		var berr strings.Builder
+		dump.Stderr = &berr
+		if rerr := dump.Run(); rerr != nil {
+			outF.Close()
+			return "", fmt.Errorf("数据库预备份(mysqldump)失败: %v (%s)", rerr, strings.TrimSpace(berr.String()))
+		}
+		outF.Close()
+	} else if w.DBType == "postgresql" {
+		dump := exec.Command("pg_dump", "-h", w.DBHost, "-p", strconv.Itoa(dbPortOrDefault(w.DBPort, "postgresql")), "-U", w.DBUser, "-d", w.DBName, "-f", bakPath)
+		dump.Env = append(os.Environ(), "PGPASSWORD="+w.DBPassword)
+		var berr strings.Builder
+		dump.Stderr = &berr
+		if rerr := dump.Run(); rerr != nil {
+			return "", fmt.Errorf("数据库预备份(pg_dump)失败: %v (%s)", rerr, strings.TrimSpace(berr.String()))
+		}
+	} else {
+		return "", fmt.Errorf("不支持的数据库类型: %s", w.DBType)
+	}
+
+	// 2) 解压 .sql.gz → tmpSQL
+	_ = c.CommandProgress(&client.CommandProgressRequest{
+		CommandID: cmd.ID,
+		Output:    "[导入] 解压数据库归档…",
+	})
+	gz := exec.Command("gzip", "-dc", dest)
+	outF, oerr := os.Create(tmpSQL)
+	if oerr != nil {
+		return bakPath, fmt.Errorf("创建解压目标文件失败: %w；预备份: %s", oerr, bakPath)
+	}
+	gz.Stdout = outF
+	var gerr strings.Builder
+	gz.Stderr = &gerr
+	if rerr := gz.Run(); rerr != nil {
+		outF.Close()
+		return bakPath, fmt.Errorf("解压数据库归档失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(gerr.String()), bakPath)
+	}
+	outF.Close()
+
+	// 3) DROP + CREATE + 导入
+	if w.DBType == "mysql" {
+		cnfPath := filepath.Join(tmpDir, fmt.Sprintf("my-%d.cnf", os.Getpid()))
+		cnf := fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\n", w.DBUser, w.DBPassword, w.DBHost, dbPortOrDefault(w.DBPort, "mysql"))
+		if werr := os.WriteFile(cnfPath, []byte(cnf), 0600); werr != nil {
+			return bakPath, fmt.Errorf("写入数据库配置失败: %w；预备份: %s", werr, bakPath)
+		}
+		drop := exec.Command("mysql", "--defaults-extra-file="+cnfPath, "-e",
+			fmt.Sprintf("DROP DATABASE IF EXISTS `%s`; CREATE DATABASE `%s`;", w.DBName, w.DBName))
+		var derr strings.Builder
+		drop.Stderr = &derr
+		if rerr := drop.Run(); rerr != nil {
+			return bakPath, fmt.Errorf("重建数据库失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(derr.String()), bakPath)
+		}
+		inF, ierr := os.Open(tmpSQL)
+		if ierr != nil {
+			return bakPath, fmt.Errorf("打开解压 SQL 失败: %w；预备份: %s", ierr, bakPath)
+		}
+		defer inF.Close()
+		imp := exec.Command("mysql", "--defaults-extra-file="+cnfPath, w.DBName)
+		imp.Stdin = inF
+		var ierrb strings.Builder
+		imp.Stderr = &ierrb
+		_ = c.CommandProgress(&client.CommandProgressRequest{
+			CommandID: cmd.ID,
+			Output:    "[导入] 重建并导入数据库…",
+		})
+		if rerr := imp.Run(); rerr != nil {
+			return bakPath, fmt.Errorf("导入数据库失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(ierrb.String()), bakPath)
+		}
+	} else if w.DBType == "postgresql" {
+		portStr := strconv.Itoa(dbPortOrDefault(w.DBPort, "postgresql"))
+		env := append(os.Environ(), "PGPASSWORD="+w.DBPassword)
+		drop := exec.Command("psql", "-h", w.DBHost, "-p", portStr, "-U", w.DBUser, "-c",
+			fmt.Sprintf("DROP DATABASE IF EXISTS \"%s\";", w.DBName))
+		drop.Env = env
+		var derr strings.Builder
+		drop.Stderr = &derr
+		if rerr := drop.Run(); rerr != nil {
+			return bakPath, fmt.Errorf("删除数据库失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(derr.String()), bakPath)
+		}
+		create := exec.Command("psql", "-h", w.DBHost, "-p", portStr, "-U", w.DBUser, "-c",
+			fmt.Sprintf("CREATE DATABASE \"%s\";", w.DBName))
+		create.Env = env
+		var cerr strings.Builder
+		create.Stderr = &cerr
+		if rerr := create.Run(); rerr != nil {
+			return bakPath, fmt.Errorf("创建数据库失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(cerr.String()), bakPath)
+		}
+		imp := exec.Command("psql", "-h", w.DBHost, "-p", portStr, "-U", w.DBUser, "-d", w.DBName, "-f", tmpSQL)
+		imp.Env = env
+		var ierrb strings.Builder
+		imp.Stderr = &ierrb
+		_ = c.CommandProgress(&client.CommandProgressRequest{
+			CommandID: cmd.ID,
+			Output:    "[导入] 重建并导入数据库…",
+		})
+		if rerr := imp.Run(); rerr != nil {
+			return bakPath, fmt.Errorf("导入数据库失败: %v (%s)；可手动回滚（预备份: %s）", rerr, strings.TrimSpace(ierrb.String()), bakPath)
+		}
+	}
+	return bakPath, nil
 }
 
 // performSelfBackup 自主压缩：tar 网站根目录 + 导出数据库，复用既有 report/upload 管线上传。
