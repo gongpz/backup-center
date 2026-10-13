@@ -58,6 +58,18 @@ func (s *Scanner) SetWebsites(sites []client.Website) {
 	}
 }
 
+// WebsiteByID 从已加载的网站清单里按 ID 取网站配置（self_backup 用）
+func (s *Scanner) WebsiteByID(id int64) (client.Website, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, w := range s.sites {
+		if w.ID == id {
+			return w, true
+		}
+	}
+	return client.Website{}, false
+}
+
 // ScanAll 扫描所有网站的备份目录，上报新发现的文件 + 触发上传
 // sync_mode = "scheduled" 的网站会被跳过（等 Center 派 sync_now 或用户手动触发）
 func (s *Scanner) ScanAll() {

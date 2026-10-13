@@ -47,6 +47,15 @@ type Website struct {
 	FilePattern   string  `json:"file_pattern"`
 	RetentionDays int     `json:"retention_days"`
 	StorageIDs    []int64 `json:"storage_ids"`
+	// 自主压缩（backup_source=self）：由 Agent 自己 tar 网站根目录 + 导出数据库
+	BackupSource string `json:"backup_source"`
+	WebRoot      string `json:"web_root"`
+	DBType       string `json:"db_type"`
+	DBHost       string `json:"db_host"`
+	DBPort       int    `json:"db_port"`
+	DBName       string `json:"db_name"`
+	DBUser       string `json:"db_user"`
+	DBPassword   string `json:"db_password"`
 	// 同步方式：auto=Agent 每 2 分钟自动扫描（默认）；scheduled=Agent 不主动扫，等 Center 派 sync_now
 	SyncMode string `json:"sync_mode"`
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -130,7 +132,7 @@ func cmdRun(configPath string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		doHeartbeat(c, cfg, scn)
+		doHeartbeat(c, cfg, scn, up)
 		ticker := time.NewTicker(heartbeatInterval)
 		defer ticker.Stop()
 		for {
@@ -138,7 +140,7 @@ func cmdRun(configPath string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				doHeartbeat(c, cfg, scn)
+				doHeartbeat(c, cfg, scn, up)
 			}
 		}
 	}()
@@ -189,7 +191,7 @@ func cmdRun(configPath string) {
 	slog.Info("Agent 已退出")
 }
 
-func doHeartbeat(c *client.Client, cfg *config.Config, scn *scanner.Scanner) {
+func doHeartbeat(c *client.Client, cfg *config.Config, scn *scanner.Scanner, up *uploader.Uploader) {
 	metrics := sysinfo.Collect()
 	resp, err := c.Heartbeat(metrics)
 	if err != nil {
@@ -216,7 +218,7 @@ func doHeartbeat(c *client.Client, cfg *config.Config, scn *scanner.Scanner) {
 	}
 
 	if resp != nil && resp.PendingCommand != nil {
-		go handleAgentCommand(resp.PendingCommand, cfg, c, scn)
+		go handleAgentCommand(resp.PendingCommand, cfg, c, scn, up)
 	}
 }
 
@@ -390,7 +392,7 @@ func shellQuote(s string) string {
 
 // handleAgentCommand 处理心跳里收到的一条指令。成功不 report（Center 靠 version 变化自判 for update）；
 // 一般命令走 CommandResult 汇报。
-func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *client.Client, scn *scanner.Scanner) {
+func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) {
 	if cmd == nil {
 		return
 	}
@@ -455,6 +457,23 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 		output, err := performBindRoot(cmd)
 		if err != nil {
 			slog.Warn("根目录绑定失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Error:     err.Error(),
+			})
+			return
+		}
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "success",
+			Output:    output,
+		})
+
+	case "self_backup":
+		output, err := performSelfBackup(cmd, c, up, scn)
+		if err != nil {
+			slog.Warn("自主备份失败", "err", err, "id", cmd.ID)
 			_ = c.CommandResult(&client.CommandResultRequest{
 				CommandID: cmd.ID,
 				Status:    "failed",
@@ -564,6 +583,215 @@ func performRestore(cmd *client.PendingCommand, c *client.Client) (string, error
 	}
 
 	return fmt.Sprintf("已恢复到本地: %s", dest), nil
+}
+
+// performSelfBackup 自主压缩：tar 网站根目录 + 导出数据库，复用既有 report/upload 管线上传。
+// 与 external 模式（扫描已存在文件）不同，这里由 Agent 主动生成备份产物。
+func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploader.Uploader, scn *scanner.Scanner) (string, error) {
+	p := cmd.Params
+	if p == nil {
+		return "", fmt.Errorf("自主备份指令缺少参数")
+	}
+	websiteID, err := parseInt64Param(p["website_id"])
+	if err != nil {
+		return "", fmt.Errorf("website_id 解析失败: %w", err)
+	}
+	w, ok := scn.WebsiteByID(websiteID)
+	if !ok {
+		return "", fmt.Errorf("网站 %d 不在 Agent 已加载的清单中", websiteID)
+	}
+	if w.WebRoot == "" && w.DBType == "" {
+		return "", fmt.Errorf("未配置网站根目录与数据库，无法自主备份（请先在 Center 绑定 web_root 或填写数据库连接）")
+	}
+
+	// 工具前置检查
+	if _, err := exec.LookPath("tar"); err != nil {
+		return "", fmt.Errorf("服务器缺少 tar 工具，无法自主压缩")
+	}
+	if w.DBType != "" {
+		switch w.DBType {
+		case "mysql":
+			if _, e := exec.LookPath("mysqldump"); e != nil {
+				if _, e2 := exec.LookPath("mariadb-dump"); e2 != nil {
+					return "", fmt.Errorf("数据库类型为 mysql 但服务器缺少 mysqldump/mariadb-dump 工具")
+				}
+			}
+		case "postgresql":
+			if _, e := exec.LookPath("pg_dump"); e != nil {
+				return "", fmt.Errorf("数据库类型为 postgresql 但服务器缺少 pg_dump 工具")
+			}
+		default:
+			return "", fmt.Errorf("不支持的数据库类型: %s", w.DBType)
+		}
+	}
+
+	tmpDir, err := os.MkdirTemp("", "bc-self-"+strconv.FormatInt(websiteID, 10)+"-")
+	if err != nil {
+		return "", fmt.Errorf("创建临时目录失败: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	stamp := time.Now().Format("20060102-150405")
+	backupAt := time.Now()
+	safe := safeName(w.Name)
+
+	var webSize, dbSize int64
+	var products []string
+
+	// 1) 网站根目录 tar
+	if w.WebRoot != "" {
+		parent := filepath.Dir(w.WebRoot)
+		base := filepath.Base(w.WebRoot)
+		arcName := fmt.Sprintf("%s-web-%s.tar.gz", safe, stamp)
+		arcPath := filepath.Join(tmpDir, arcName)
+		slog.Info("自主备份：打包网站目录", "id", cmd.ID, "from", w.WebRoot, "to", arcPath)
+		tcmd := exec.Command("tar", "-czf", arcPath, "-C", parent, base)
+		if out, terr := tcmd.CombinedOutput(); terr != nil {
+			return "", fmt.Errorf("tar 网站目录失败: %v\n%s", terr, string(out))
+		}
+		if fi, ferr := os.Stat(arcPath); ferr == nil {
+			webSize = fi.Size()
+			products = append(products, "网站目录 "+humanizeBytes(webSize))
+		}
+		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, arcName, arcPath, webSize, backupAt); err != nil {
+			slog.Warn("上报/上传网站目录失败", "err", err)
+		} else {
+			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "网站目录已上传: " + arcName})
+		}
+	}
+
+	// 2) 数据库导出
+	if w.DBType != "" {
+		sqlName := fmt.Sprintf("%s-db-%s.sql", safe, stamp)
+		sqlPath := filepath.Join(tmpDir, sqlName)
+		if w.DBType == "mysql" {
+			cnfPath := filepath.Join(tmpDir, fmt.Sprintf("my-%d.cnf", os.Getpid()))
+			cnf := fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\n",
+				w.DBUser, w.DBPassword, w.DBHost, dbPortOrDefault(w.DBPort, "mysql"))
+			if werr := os.WriteFile(cnfPath, []byte(cnf), 0600); werr != nil {
+				return "", fmt.Errorf("写入 mysqldump 配置失败: %w", werr)
+			}
+			dump := exec.Command("mysqldump", "--defaults-extra-file="+cnfPath, "--single-transaction", "--routines", "--events", w.DBName)
+			if path, lerr := exec.LookPath("mariadb-dump"); lerr == nil {
+				dump = exec.Command(path, "--defaults-extra-file="+cnfPath, "--single-transaction", w.DBName)
+			}
+			outF, oerr := os.Create(sqlPath)
+			if oerr != nil {
+				return "", fmt.Errorf("创建数据库导出文件失败: %w", oerr)
+			}
+			dump.Stdout = outF
+			stderr := &strings.Builder{}
+			dump.Stderr = stderr
+			if rerr := dump.Run(); rerr != nil {
+				outF.Close()
+				return "", fmt.Errorf("mysqldump 失败: %v\n%s", rerr, stderr.String())
+			}
+			outF.Close()
+		} else if w.DBType == "postgresql" {
+			dump := exec.Command("pg_dump", "-h", w.DBHost, "-p", strconv.Itoa(dbPortOrDefault(w.DBPort, "postgresql")), "-U", w.DBUser, "-d", w.DBName, "-f", sqlPath)
+			dump.Env = append(os.Environ(), "PGPASSWORD="+w.DBPassword)
+			stderr := &strings.Builder{}
+			dump.Stderr = stderr
+			if rerr := dump.Run(); rerr != nil {
+				return "", fmt.Errorf("pg_dump 失败: %v\n%s", rerr, stderr.String())
+			}
+		}
+		gzPath := sqlPath + ".gz"
+		if gerr := exec.Command("gzip", "-f", sqlPath).Run(); gerr != nil {
+			return "", fmt.Errorf("压缩数据库导出失败: %w", gerr)
+		}
+		if fi, ferr := os.Stat(gzPath); ferr == nil {
+			dbSize = fi.Size()
+			products = append(products, "数据库 "+humanizeBytes(dbSize))
+		}
+		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, filepath.Base(gzPath), gzPath, dbSize, backupAt); err != nil {
+			slog.Warn("上报/上传数据库失败", "err", err)
+		} else {
+			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "数据库已上传: " + filepath.Base(gzPath)})
+		}
+	}
+
+	if len(products) == 0 {
+		return "", fmt.Errorf("没有任何产物生成（网站根目录与数据库均未配置）")
+	}
+	summary := fmt.Sprintf("自主备份完成：%s，已推送至 %d 个存储", strings.Join(products, " · "), len(w.StorageIDs))
+	if len(w.StorageIDs) == 0 {
+		summary += "（未配置存储目标，仅生成本地记录）"
+	}
+	return summary, nil
+}
+
+func parseInt64Param(v interface{}) (int64, error) {
+	switch t := v.(type) {
+	case float64:
+		return int64(t), nil
+	case int64:
+		return t, nil
+	case int:
+		return int64(t), nil
+	case json.Number:
+		return t.Int64()
+	default:
+		return 0, fmt.Errorf("非预期类型 %T", v)
+	}
+}
+
+func dbPortOrDefault(p int, dbType string) int {
+	if p > 0 {
+		return p
+	}
+	if dbType == "postgresql" {
+		return 5432
+	}
+	return 3306
+}
+
+func safeName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	s := strings.TrimSpace(b.String())
+	if s == "" {
+		return "site"
+	}
+	return s
+}
+
+func humanizeBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div := float64(unit)
+	for _, u := range []string{"KB", "MB", "GB", "TB"} {
+		if b < int64(div*unit) {
+			return fmt.Sprintf("%.1f %s", float64(b)/div, u)
+		}
+		div *= unit
+	}
+	return fmt.Sprintf("%.1f TB", float64(b)/div)
+}
+
+// reportAndUpload 上报一条备份记录并（同步）上传到所有目标存储
+func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID int64, w client.Website, filename, fullPath string, size int64, backupAt time.Time) error {
+	resp, err := c.Report(&client.ReportRequest{
+		WebsiteID: websiteID,
+		Filename:  filename,
+		FullPath:  fullPath,
+		Size:      size,
+		BackupAt:  backupAt.Format(time.RFC3339),
+		Status:    "success",
+	})
+	if err != nil {
+		return fmt.Errorf("上报备份记录失败: %w", err)
+	}
+	up.ProcessBackup(resp.LogID, fullPath, w.Name, backupAt, w.StorageIDs)
+	return nil
 }
 
 // progressTracker 从 rclone stderr 抓取"最新一行非空进度"（--stats-one-line 用 \r 覆盖刷新，
