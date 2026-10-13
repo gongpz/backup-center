@@ -9,6 +9,8 @@
 - 购买地址：https://my.hostbrr.com/order/forms/a/MjA3MjM=
 
 ---
+## 在线演示：https://gongpz.github.io/backup-center/dashboard
+<img width="1912" height="914" alt="image" src="https://github.com/user-attachments/assets/8555475f-4c56-45c8-a491-520bc0eee424" />
 
 ## 特性
 
@@ -22,7 +24,6 @@
 - **页脚可配置** —— 版权、ICP 备案、统计、联系方式、自定义 HTML
 
 ---
-
 ## 快速开始
 
 ### 方式一 · 一键部署（推荐）
