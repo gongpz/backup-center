@@ -311,13 +311,61 @@ BC_HTTPS_PORT="${BC_HTTPS_PORT:-443}"
 log "1/7 检查端口（$BC_HTTP_PORT / $BC_HTTPS_PORT）"
 if [ "$MODE" = "http" ]; then
     PORTS_PATTERN=":$BC_HTTP_PORT\s"
+    DOCKER_PORTS_PATTERN=":$BC_HTTP_PORT->"
 else
     PORTS_PATTERN=":$BC_HTTP_PORT\s|:$BC_HTTPS_PORT\s"
+    DOCKER_PORTS_PATTERN=":$BC_HTTP_PORT->|:$BC_HTTPS_PORT->"
 fi
-if ss -tlnp 2>/dev/null | grep -E "($PORTS_PATTERN)" >/dev/null; then
-    warn "端口已被占用："
-    ss -tlnp | grep -E "($PORTS_PATTERN)" || true
-    die "请先释放这些端口"
+
+# 端口是否仍被占用
+bc_ports_busy() { ss -tlnp 2>/dev/null | grep -E "($PORTS_PATTERN)"; }
+
+# 覆盖/重装时端口常被上一次的 bc-web 容器占着（docker-proxy）。
+# 只处理本项目自己的容器（bc-* / compose 项目 deploy）；外部服务不碰。
+bc_release_ports() {
+    command -v docker >/dev/null 2>&1 || return 1
+    timeout 10 docker info >/dev/null 2>&1 || return 1
+    local freed=0 cname owners
+    # 1) 上一次的 compose 栈还在跑 → down（不加 -v，覆盖安装保留数据卷）
+    #    判定用 docker ps（compose ps -q 在部分环境会返回空，不可靠）
+    if [ -f "$TARGET_DIR/deploy/docker-compose.yml" ] \
+       && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^bc-'; then
+        log "  停止上一次的 Backup Center 容器栈，释放端口…"
+        (cd "$TARGET_DIR/deploy" && docker compose down --remove-orphans >/dev/null 2>&1)
+        freed=1
+    fi
+    # 2) 兜底：仍占着端口的 docker 容器，属于本项目才强删
+    owners="$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -E "($DOCKER_PORTS_PATTERN)" | awk '{print $1}')"
+    for cname in $owners; do
+        case "$cname" in
+            bc-*)
+                log "  停止旧容器 $cname 以释放端口…"
+                docker rm -f "$cname" >/dev/null 2>&1 && freed=1;;
+            *)
+                warn "  端口被容器 $cname 占用（非 Backup Center），不自动处理";;
+        esac
+    done
+    [ "$freed" = "1" ] || return 1
+    # 等端口真正释放
+    for _ in $(seq 1 10); do
+        bc_ports_busy >/dev/null || return 0
+        sleep 1
+    done
+    bc_ports_busy >/dev/null && return 1
+    return 0
+}
+
+if bc_ports_busy >/dev/null; then
+    if bc_ports_busy | grep -q 'docker-proxy'; then
+        if bc_release_ports; then
+            log "  ✓ 已自动释放端口（停止了旧的 Backup Center 容器）"
+        fi
+    fi
+    if bc_ports_busy >/dev/null; then
+        warn "端口已被占用："
+        bc_ports_busy || true
+        die "请先释放这些端口。若是 nginx/apache 等外部服务：停掉它，或用 BC_HTTP_PORT / BC_HTTPS_PORT 换端口重跑；若是 Backup Center 旧容器：cd $TARGET_DIR/deploy && docker compose down"
+    fi
 fi
 
 # ---------- 2) Docker ----------
