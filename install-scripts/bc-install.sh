@@ -71,12 +71,35 @@ INTERACTED=0
 BC_ACCESS="${BC_ACCESS:-${BC_DOMAIN:-}}"
 if [ -z "$BC_ACCESS" ]; then
     echo "第 1 步：访问地址"
-    # 自动探测本机公网 IP：一键部署不再要求手输（探测失败才退回提问）
+    # 先探测本机公网 IP，让用户选择「用 IP 还是域名」；选 IP 默认用探测到的本机 IP
     PUB_IP="$(curl -fsS -m 5 https://api.ipify.org 2>/dev/null || curl -fsS -m 5 https://ifconfig.me 2>/dev/null || true)"
     if [ -n "$PUB_IP" ]; then
-        BC_ACCESS="$PUB_IP"
-        echo "  → 自动使用本机公网 IP：$BC_ACCESS"
-        echo "  （如需绑定域名：Ctrl+C 中止，改用 BC_ACCESS=你的域名 重跑本脚本）"
+        echo "  · 检测到本机公网 IP：$PUB_IP"
+        echo "  1) 使用 IP 访问    （默认使用本机公网 IP）"
+        echo "  2) 使用域名访问    （需要 A 记录已指到本机）"
+        while :; do
+            ACC_CHOICE=""
+            _read_tty ACC_CHOICE "选择 (1/2)" "1"
+            INTERACTED=1
+            case "$ACC_CHOICE" in
+                1|"")
+                    BC_ACCESS="$PUB_IP"
+                    echo "  → 使用本机公网 IP：$BC_ACCESS"
+                    break;;
+                2)
+                    while :; do
+                        DOM_INPUT=""
+                        _read_tty DOM_INPUT "输入你的域名"
+                        if [ -n "$DOM_INPUT" ]; then
+                            BC_ACCESS="$DOM_INPUT"
+                            break 2
+                        fi
+                        warn "域名不能为空"
+                    done;;
+                *)
+                    warn "输入 1 或 2";;
+            esac
+        done
     else
         echo "  · 域名示例：bak.example.com（需要 A 记录先指到本机）"
         echo "  · IP 示例：1.2.3.4"
