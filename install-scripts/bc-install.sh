@@ -188,13 +188,22 @@ fi
 echo ""
 
 # ---------- 已装检测 ----------
+FRESH_INSTALL=0
 if [ -d "$TARGET_DIR" ] && [ -z "${BC_FORCE:-}" ]; then
     warn "$TARGET_DIR 已存在"
+    echo "  1) 卸载后全新安装  （清空 $TARGET_DIR：容器、数据库、证书、配置全部重置，从零开始）"
+    echo "  2) 覆盖安装        （保留 .env / 数据库 / 证书，仅更新程序文件）"
+    echo "  3) 退出"
     OW=""
-    _read_tty OW "覆盖并重新部署？会保留数据库 + 证书 (y/N)" "N"
+    _read_tty OW "选择处理方式 (1/2/3)" "2"
     case "$OW" in
-        Y|y) BC_FORCE=1;;
-        *) die "已取消。若想手动清除：cd /opt/bc/deploy && docker compose down -v && rm -rf /opt/bc";;
+        1)
+            FRESH_INSTALL=1
+            log "  全新安装：清空 $TARGET_DIR（数据库将重置，证书需重新生成）"
+            rm -rf "$TARGET_DIR"
+            ;;
+        2) BC_FORCE=1;;
+        *) die "已取消。如需手动处理：cd /opt/bc/deploy && docker compose down -v && rm -rf /opt/bc";;
     esac
 fi
 
@@ -286,10 +295,37 @@ if ! command -v docker >/dev/null 2>&1; then
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
     sh /tmp/get-docker.sh
     rm -f /tmp/get-docker.sh
-    systemctl enable --now docker
 fi
 docker --version >/dev/null || die "Docker 安装失败"
 docker compose version >/dev/null 2>&1 || die "Docker Compose 插件缺失"
+
+# 二进制存在 ≠ 守护进程在跑（docker --version / compose version 都不需要 daemon）。
+# 历史上这里只查二进制，导致 daemon 没起的机器下载解压全走完、第 7 步构建才崩。
+# 必须确认 daemon 真的活着；起不来就早死，别浪费用户时间。
+if ! timeout 10 docker info >/dev/null 2>&1; then
+    log "  Docker 已安装但守护进程未运行，尝试启动..."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable docker >/dev/null 2>&1 || true
+        systemctl start docker  >/dev/null 2>&1 || true
+    fi
+    if command -v service >/dev/null 2>&1; then
+        service docker start >/dev/null 2>&1 || true
+    fi
+    for _ in $(seq 1 10); do
+        timeout 10 docker info >/dev/null 2>&1 && break
+        sleep 2
+    done
+fi
+timeout 10 docker info >/dev/null 2>&1 || die "Docker 守护进程无法连接。请先手动修复：systemctl status docker；journalctl -xe | grep docker。常见原因：内核不支持 / cgroup 异常 / 磁盘满 / systemd 未激活。修好后重跑本脚本。"
+log "  ✓ Docker 就绪"
+
+# 全新安装：清掉上一次安装遗留的容器和数据卷（rm -rf 删了 compose 文件，
+# 容器不会自动消失；不清则后面 up -d 会撞名 'container name already in use'）
+if [ "${FRESH_INSTALL:-0}" = "1" ]; then
+    docker rm -f bc-app bc-web >/dev/null 2>&1 || true
+    docker volume rm deploy_bc-database >/dev/null 2>&1 || true
+    log "  ✓ 已清理旧容器与数据卷"
+fi
 
 # ---------- 3) 拉部署包 ----------
 log "3/7 拉部署包"
@@ -394,8 +430,11 @@ fi
 # ---------- 7) 启动 ----------
 log "7/7 构建镜像 + 启动容器（首次约 2-3 分钟）"
 cd "$TARGET_DIR/deploy"
-docker compose build app 2>&1 | tail -3
-docker compose up -d
+if ! docker compose build app >/tmp/bc-build.log 2>&1; then
+    tail -20 /tmp/bc-build.log
+    die "镜像构建失败，完整日志：/tmp/bc-build.log"
+fi
+docker compose up -d || die "容器启动失败。排查：cd $TARGET_DIR/deploy && docker compose logs --tail=50"
 sleep 12
 
 # ---------- LE 续期钩子 ----------
