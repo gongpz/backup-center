@@ -22,6 +22,9 @@ export const websitesApi = {
   bindRoot(id, payload) {
     return http.post(`/websites/${id}/bind-root`, payload).then((r) => r.data)
   },
+  selfBackup(id) {
+    return http.post(`/websites/${id}/self-backup`).then((r) => r.data)
+  },
 }
 
 export const systemApi = {

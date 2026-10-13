@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Sort, Key } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
 import { serversApi } from '@/api/servers'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
@@ -89,10 +89,25 @@ const syncNow = async (row) => {
   try {
     const res = await websitesApi.syncNow(row.id)
     ElMessage.success(res.message || '已下发同步指令，最长 60 秒内 Agent 会执行')
-  } catch (_) { /* interceptor 弹错 */ } finally {
+  } catch (_) { /* interceptor 弹错 */   } finally {
     const s = new Set(syncingIds.value)
     s.delete(row.id)
     syncingIds.value = s
+  }
+}
+
+// 立即自主备份（P3）：仅 self 来源网站显示；复用 websitesApi.selfBackup 下发指令
+const selfBackingIds = ref(new Set())
+const selfBackupNow = async (row) => {
+  if (selfBackingIds.value.has(row.id)) return
+  selfBackingIds.value = new Set([...selfBackingIds.value, row.id])
+  try {
+    const res = await websitesApi.selfBackup(row.id)
+    ElMessage.success(res.message || '已下发自主备份指令，最长 60 秒内 Agent 会执行')
+  } catch (_) { /* interceptor 弹错 */ } finally {
+    const s = new Set(selfBackingIds.value)
+    s.delete(row.id)
+    selfBackingIds.value = s
   }
 }
 
@@ -265,9 +280,9 @@ const total = computed(() => meta.total)
 
         <el-table-column label="最近备份" min-width="230">
           <template #default="{ row }">
-            <div v-if="row.recent_backups?.length" class="recent-backups">
+            <div v-if="(row.backup_source === 'self' ? row.recent_self_backups : row.recent_backups)?.length" class="recent-backups">
               <div
-                v-for="(rb, idx) in row.recent_backups"
+                v-for="(rb, idx) in (row.backup_source === 'self' ? row.recent_self_backups : row.recent_backups)"
                 :key="idx"
                 class="rb-row"
               >
@@ -332,12 +347,21 @@ const total = computed(() => meta.total)
           <template #default="{ row }">
             <div class="row-actions">
               <el-button
+                v-if="row.backup_source !== 'self'"
                 link
                 :icon="Sort"
                 type="primary"
                 :loading="syncingIds.has(row.id)"
                 @click="syncNow(row)"
               >同步</el-button>
+              <el-button
+                v-if="row.backup_source === 'self'"
+                link
+                :icon="Box"
+                type="primary"
+                :loading="selfBackingIds.has(row.id)"
+                @click="selfBackupNow(row)"
+              >备份</el-button>
               <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>

@@ -45,6 +45,14 @@ const form = reactive({
   backup_source: 'external',
   // 恢复模式（P1）：lite=拉回备份目录，手动恢复；advanced=系统全自动恢复线上（P4 支持）
   restore_mode: 'lite',
+
+  // 数据库连接（自主压缩 self 用；密码留空表示不修改）
+  db_type: 'mysql',
+  db_host: '127.0.0.1',
+  db_port: 3306,
+  db_name: '',
+  db_user: '',
+  db_password: '',
 })
 
 const rules = {
@@ -61,6 +69,10 @@ const removeBackupPath = (idx) => {
   if (form.backup_paths.length === 0) {
     form.backup_paths.push(emptyBackupPath(0))
   }
+}
+
+const onDbTypeChange = () => {
+  form.db_port = form.db_type === 'postgresql' ? 5432 : 3306
 }
 
 const monthDays = Array.from({ length: 31 }, (_, i) => i + 1)
@@ -107,6 +119,12 @@ watch(
         schedule_time: '03:00',
         backup_source: 'external',
         restore_mode: 'lite',
+        db_type: 'mysql',
+        db_host: '127.0.0.1',
+        db_port: 3306,
+        db_name: '',
+        db_user: '',
+        db_password: '',
       })
       if (props.website) {
         const existing = Array.isArray(props.website.backup_paths) ? props.website.backup_paths : []
@@ -143,6 +161,12 @@ watch(
           schedule_time: hm,
           backup_source: props.website.backup_source || 'external',
           restore_mode: props.website.restore_mode || 'lite',
+          db_type: props.website.db_type || 'mysql',
+          db_host: props.website.db_host || '127.0.0.1',
+          db_port: props.website.db_port || 3306,
+          db_name: props.website.db_name || '',
+          db_user: props.website.db_user || '',
+          db_password: '', // 密码永不回填明文
         })
       }
       loadServers()
@@ -166,7 +190,7 @@ const onSubmit = () => {
       }))
       .filter((p) => p.path !== '')
 
-    if (cleanedPaths.length === 0) {
+    if (cleanedPaths.length === 0 && form.backup_source !== 'self') {
       ElMessage.warning('请至少填写一个备份目录')
       return
     }
@@ -177,7 +201,6 @@ const onSubmit = () => {
         server_id: form.server_id,
         name: form.name,
         domain: form.domain,
-        backup_paths: cleanedPaths,
         retention_days: form.retention_days,
         status: form.status,
         remark: form.remark,
@@ -187,6 +210,17 @@ const onSubmit = () => {
         schedule: form.sync_mode === 'scheduled' ? form.schedule_time : null,
         backup_source: form.backup_source,
         restore_mode: form.restore_mode,
+        // 数据库连接（自主压缩 self 用；空密码=不改）
+        db_type: form.db_type,
+        db_host: form.db_host,
+        db_port: form.db_port,
+        db_name: form.db_name,
+        db_user: form.db_user,
+        db_password: form.db_password,
+        // external 必传；self 且未填目录时可不发送该键
+        ...(form.backup_source === 'external' || cleanedPaths.length > 0
+          ? { backup_paths: cleanedPaths }
+          : {}),
       }
       const saved = isEdit.value
         ? await websitesApi.update(props.website.id, payload)
@@ -296,6 +330,9 @@ const onSubmit = () => {
             <span>添加备份目录</span>
           </button>
         </div>
+        <p v-if="form.backup_source === 'self'" class="mode-hint">
+          自主压缩将直接打包上方绑定的「网站根目录」，此处的备份目录可留空。
+        </p>
       </el-form-item>
 
       <!-- 同步方式 -->
@@ -350,6 +387,29 @@ const onSubmit = () => {
               由本系统直接在服务器上完成网站目录与数据库压缩后再上传（后续版本支持）。
             </template>
           </span>
+        </div>
+      </el-form-item>
+
+      <!-- 数据库配置（自主压缩 self 用） -->
+      <el-form-item label="数据库配置" prop="db_type" v-if="form.backup_source === 'self'">
+        <div class="db-cfg">
+          <div class="db-cfg-row">
+            <el-select v-model="form.db_type" style="width: 150px" @change="onDbTypeChange">
+              <el-option label="MySQL / MariaDB" value="mysql" />
+              <el-option label="PostgreSQL" value="postgresql" />
+            </el-select>
+            <el-input v-model="form.db_host" placeholder="主机" style="width: 160px" />
+            <el-input v-model.number="form.db_port" placeholder="端口" style="width: 110px" />
+          </div>
+          <div class="db-cfg-row">
+            <el-input v-model="form.db_name" placeholder="数据库名" style="width: 200px" />
+            <el-input v-model="form.db_user" placeholder="用户名" style="width: 160px" />
+            <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 220px" />
+          </div>
+          <p class="mode-hint">
+            仅用于 Agent 在服务器上执行 <code>mysqldump</code> / <code>pg_dump</code>；密码经加密存储，列表与接口均不回传明文。
+            需先在网站列表通过「绑定」设置网站根目录。
+          </p>
         </div>
       </el-form-item>
 
@@ -496,6 +556,10 @@ const onSubmit = () => {
   font-size: 12px;
   color: var(--bc-text-secondary);
 }
+
+.db-cfg { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.db-cfg-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.db-cfg code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .mode-tag {
   display: inline-flex;
   align-items: center;

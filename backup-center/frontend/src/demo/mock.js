@@ -113,7 +113,7 @@ const db = {
   ],
 
   websites: [
-    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站', storage_ids: [1, 2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站（自主压缩演示）', storage_ids: [1, 2], backup_source: 'self', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'main_site', db_user: 'root', db_password_set: true },
     { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
@@ -250,6 +250,44 @@ db.logs = [
   }))),
 }))
 
+// 演示用：官网主站（self 来源）预置两条自主备份，点亮「最近备份」里的 recent_self_backups
+;(() => {
+  const w = findById(db.websites, 1)
+  if (w && w.backup_source === 'self') {
+    const addSelfLog = (filename, size) => {
+      const id = nextId('log')
+      const at = hours(2)
+      db.logs.unshift({
+        ...mkLog(id, w.name, w.server?.name, size, 'success', 120, 60),
+        id,
+        website: { name: w.name, domain: w.domain },
+        server: w.server,
+        website_id: w.id,
+        server_id: w.server_id,
+        filename,
+        full_path: `${w.web_root}/backup/${filename}`,
+        size,
+        status: 'success',
+        upload_status: 'uploaded',
+        uploads: [{
+          id: id * 10 + 1,
+          storage_name: 'Hetzner 主存储',
+          storage_type: 'sftp',
+          status: 'uploaded',
+          uploaded_bytes: size,
+          duration_seconds: 40,
+          attempts: 1,
+          finished_at: at,
+          error_message: null,
+          remote_path: `/backups/${w.name}/${filename}`,
+        }],
+      })
+    }
+    addSelfLog('main_site-web-20261014-020001.tar.gz', 2.2 * GB)
+    addSelfLog('main_site-db-20261014-030000.sql.gz', 360 * MB)
+  }
+})()
+
 /* ============================================================
    通用工具
    ============================================================ */
@@ -311,6 +349,36 @@ const fileLabel = (log, website) => {
   }
   return fallback
 }
+
+// 自主压缩（self）的最近备份：从 db.logs 里挑出 <name>-web-*.tar.gz 与 <name>-db-*.sql.gz 各最新一条，
+// 包装成 [{ label:'网站目录', path, log }, { label:'数据库', path:'（数据库）', log }]（无则省略）。
+const buildRecentSelfBackups = (website) => {
+  const webLogs = db.logs.filter((l) => l.website_id === website.id)
+  const pick = (re) => {
+    const sorted = webLogs
+      .filter((x) => re.test(x.filename || ''))
+      .sort((a, b) => new Date(b.backup_at) - new Date(a.backup_at))
+    return sorted[0] || null
+  }
+  const shape = (l) => ({
+    id: l.id,
+    filename: l.filename,
+    status: l.status,
+    upload_status: l.upload_status,
+    size: l.size,
+    backup_at: l.backup_at,
+    synced_at: l.synced_at,
+    succeeded: (l.succeeded || []).map((s) => ({ storage_id: 1, storage_name: s.storage_name })),
+    failed: [],
+  })
+  const out = []
+  const web = pick(/^.*-web-.*\.tar\.gz$/)
+  if (web) out.push({ label: '网站目录', path: website.web_root || '（未绑定根目录）', log: shape(web) })
+  const db = pick(/^.*-db-.*\.sql\.gz$/)
+  if (db) out.push({ label: '数据库', path: '（数据库）', log: shape(db) })
+  return out
+}
+
 
 // 恢复命令队列：pending → dispatched(6s) → success(14s)，模拟 Agent 每次心跳逐条执行
 db.restoreCommands = []
@@ -463,7 +531,9 @@ const routes = [
     (!p.status || w.status === p.status)
     && (!p.server_id || String(w.server_id) === String(p.server_id))
     && matchKeyword(p.keyword, w.name, w.domain, w.remark, (w.backup_paths || []).map((b) => b.path).join(' '))
-  )), p)],
+  )).map((w) => w.backup_source === 'self'
+    ? { ...w, recent_self_backups: buildRecentSelfBackups(w) }
+    : w), p)],
   ['get', /^\/websites\/(\d+)$/, (m) => ({ data: findById(db.websites, m[1]) || {} })],
   ['post', /^\/websites$/, (m, p, body) => {
     const w = {
@@ -513,6 +583,52 @@ const routes = [
     w.web_root = root
     w.root_bound_at = new Date().toISOString()
     return { message: '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件', command_id: nextId('cmd') }
+  }],
+  ['post', /^\/websites\/(\d+)\/self-backup$/, (m) => {
+    const w = findById(db.websites, m[1])
+    if (!w) return { __error: { status: 404, message: '网站不存在' } }
+    if (w.backup_source !== 'self') {
+      return { __error: { status: 422, message: '该网站不是「自主压缩」来源，无法立即自主备份' } }
+    }
+    const safe = String(w.name || 'site').replace(/[^A-Za-z0-9._-]/g, '_')
+    const now = new Date()
+    const p2 = (n) => String(n).padStart(2, '0')
+    const ts = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
+    const at = new Date().toISOString()
+    const cmdId = nextId('cmd')
+
+    const addSelfLog = (filename, fullPath, size) => {
+      const id = nextId('log')
+      db.logs.unshift({
+        ...mkLog(id, w.name, w.server?.name, size, 'success', 0, 30),
+        id,
+        website: { name: w.name, domain: w.domain },
+        server: w.server,
+        website_id: w.id,
+        server_id: w.server_id,
+        filename,
+        full_path: fullPath,
+        size,
+        status: 'success',
+        upload_status: 'uploaded',
+        uploads: [{
+          id: id * 10 + 1,
+          storage_name: db.storages[0]?.name || 'Hetzner 主存储',
+          storage_type: 'sftp',
+          status: 'uploaded',
+          uploaded_bytes: size,
+          duration_seconds: 40,
+          attempts: 1,
+          finished_at: at,
+          error_message: null,
+          remote_path: `/backups/${w.name}/${filename}`,
+        }],
+      })
+    }
+    addSelfLog(`${safe}-web-${ts}.tar.gz`, `${w.web_root || '/www'}/backup/${safe}-web-${ts}.tar.gz`, 1.5 * GB)
+    addSelfLog(`${safe}-db-${ts}.sql.gz`, `${w.web_root || '/www'}/backup/${safe}-db-${ts}.sql.gz`, 320 * MB)
+
+    return { message: '已下发自主备份指令，最长 60 秒内 Agent 会执行', command_id: cmdId }
   }],
   ['post', /^\/system\/backup$/, () => {
     const filename = `bc-system-${new Date(NOW).toISOString().slice(0, 10)}.tar.gz`
