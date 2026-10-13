@@ -501,6 +501,16 @@ const routes = [
   )), p)],
   ['get', /^\/backup-logs\/(\d+)$/, (m) => ({ data: findById(db.logs, m[1]) || {} })],
   ['delete', /^\/backup-logs\/(\d+)$/, (m) => { removeById(db.logs, m[1]); return { message: '已删除' } }],
+  ['post', /^\/backup-logs\/(\d+)\/restore$/, (m) => {
+    const log = findById(db.logs, m[1])
+    if (!log) return { message: '备份记录不存在' }
+    return {
+      message: '演示环境：已模拟下发恢复指令（实际环境会由 Agent 从云端拉取归档回服务器本地目录，不自动解包 / 不自动导入数据库）',
+      command_id: 900000 + Number(m[1]),
+      local_dir: log.full_path ? log.full_path.replace(/\/[^/]+$/, '') : '/var/backups',
+      filename: log.filename,
+    }
+  }],
 
   /* ---------- 资源池 ---------- */
   ['get', /^\/resource-pools$/, () => ({ data: db.pools })],

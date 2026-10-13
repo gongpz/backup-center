@@ -19,6 +19,9 @@ class SweepStaleAgentCommands extends Command
 
         $affected = AgentCommand::where('status', AgentCommand::STATUS_DISPATCHED)
             ->where('dispatched_at', '<=', $cutoff)
+            // 恢复（restore）是长任务（拉取云端大文件），由 Agent 显式上报结果，
+            // 不参与 stale sweep，否则大文件下载超 10 分钟会被误标 failed
+            ->where('type', '!=', AgentCommand::TYPE_RESTORE)
             ->update([
                 'status'       => AgentCommand::STATUS_FAILED,
                 'error'        => "超过 {$minutes} 分钟未收到 Agent 结果上报，自动标记为 failed（sweeper）",

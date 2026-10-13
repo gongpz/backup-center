@@ -14,6 +14,7 @@ class AgentCommand extends Model
 
     public const TYPE_UPDATE   = 'update';
     public const TYPE_SYNC_NOW = 'sync_now';
+    public const TYPE_RESTORE  = 'restore';
 
     protected $fillable = [
         'server_id',

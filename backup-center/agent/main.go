@@ -431,6 +431,25 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Output:    fmt.Sprintf("已完成一次全量扫描，用时 %.2fs", took.Seconds()),
 		})
 
+	case "restore":
+		// 远程恢复（最小可用版）：把云端归档 rclone copy 回原本地目录，
+		// 不做解包 / 不自动导入数据库，由管理员手动处理（解压 tar / 导入 .sql）
+		output, err := performRestore(cmd)
+		if err != nil {
+			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Error:     err.Error(),
+			})
+			return
+		}
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "success",
+			Output:    output,
+		})
+
 	default:
 		slog.Warn("未知指令类型，忽略", "type", cmd.Type, "id", cmd.ID)
 		_ = c.CommandResult(&client.CommandResultRequest{
@@ -439,6 +458,54 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Error:     "未支持的指令类型: " + cmd.Type,
 		})
 	}
+}
+
+// performRestore 把云端归档 rclone copy 回原本地目录（最小可用版）。
+// remote_path 形如 bc_14:bucket/backups/站点/20260809/file.tar.gz（已含 rclone remote 前缀），
+// 因此无需再解析 storage_id，直接复用 rclone.conf 里的 bc_<id> remote 即可。
+// 仅下载归档，不自动解包 / 不自动导入数据库。
+func performRestore(cmd *client.PendingCommand) (string, error) {
+	p := cmd.Params
+	if p == nil {
+		return "", fmt.Errorf("恢复指令缺少参数")
+	}
+	remotePath, _ := p["remote_path"].(string)
+	localDir, _ := p["local_dir"].(string)
+	filename, _ := p["filename"].(string)
+
+	if remotePath == "" || localDir == "" || filename == "" {
+		return "", fmt.Errorf("恢复参数不完整（remote_path/local_dir/filename 不能为空）")
+	}
+
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		return "", fmt.Errorf("创建本地目录失败 %s: %w", localDir, err)
+	}
+	dest := filepath.Join(localDir, filename)
+
+	slog.Info("开始远程恢复", "id", cmd.ID, "from", remotePath, "to", dest)
+	rcmd := exec.Command("rclone",
+		"copyto",
+		"--config", rcloneConfPath,
+		"--transfers", "1",
+		"--retries", "3",
+		"--low-level-retries", "5",
+		"--stats", "0",
+		remotePath, dest,
+	)
+	stderr := &strings.Builder{}
+	rcmd.Stderr = stderr
+	if err := rcmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		if len(msg) > 1800 {
+			msg = msg[:1800] + "…"
+		}
+		return "", fmt.Errorf("rclone 恢复失败: %s", msg)
+	}
+
+	return fmt.Sprintf("已恢复到本地: %s", dest), nil
 }
 
 func downloadFile(url, dest string) error {

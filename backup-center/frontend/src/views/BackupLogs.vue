@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search, Delete } from '@element-plus/icons-vue'
+import { Refresh, Search, Delete, Download } from '@element-plus/icons-vue'
 import { backupLogsApi } from '@/api/backupLogs'
 import { websitesApi } from '@/api/websites'
 import { serversApi } from '@/api/servers'
@@ -98,6 +98,23 @@ const remove = (row) => {
       await backupLogsApi.destroy(row.id)
       ElMessage.success('已删除')
       fetch()
+    })
+    .catch(() => {})
+}
+
+// 远程恢复（最小可用版）：把该备份从云端某存储下载回服务器本地目录。
+// 不自动解包 / 不自动导入数据库，由管理员手动处理。
+const restore = (row, upload) => {
+  const localDir = row.full_path ? dirname(row.full_path) : '原备份目录'
+  ElMessageBox.confirm(
+    `确认从存储「${upload.storage_name}」恢复该历史备份？系统会把云端归档下载回服务器本地目录（${localDir}），` +
+    `但最小可用版仅下载归档，不自动解包、不自动导入数据库，需管理员手动解压 / 导入。`,
+    '远程恢复',
+    { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
+  )
+    .then(async () => {
+      const res = await backupLogsApi.restore(row.id, upload.id)
+      ElMessage.success(res.message || '已下发恢复指令')
     })
     .catch(() => {})
 }
@@ -239,6 +256,18 @@ const total = computed(() => meta.total)
                     <div v-else-if="u.remote_path" class="mono muted" :title="u.remote_path">
                       {{ u.remote_path }}
                     </div>
+                    <span v-else class="muted">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="90" fixed="right">
+                  <template #default="{ row: u }">
+                    <el-button
+                      v-if="u.status === 'uploaded'"
+                      link
+                      type="primary"
+                      :icon="Download"
+                      @click="restore(row, u)"
+                    >恢复</el-button>
                     <span v-else class="muted">—</span>
                   </template>
                 </el-table-column>
