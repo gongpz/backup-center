@@ -5,6 +5,8 @@
 - **Center**：Laravel 12 后端 + Vue 3 前端，Docker Compose 一键起
 - **Agent**：Go 写的轻量代理，装在每台被备份的机器上，负责扫描目录并上传
 - **存储**：S3 兼容 / SFTP / FTP-FTPS / WebDAV，可同时挂多个
+- 如需要购买北非空间，推荐hostbrr的储存盒子 500GB每年才7欧元（StorageBox 500GB/€7.00/yr）
+- 购买地址：https://my.hostbrr.com/order/forms/a/MjA3MjM=
 
 ---
 
