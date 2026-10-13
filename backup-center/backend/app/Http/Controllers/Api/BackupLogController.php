@@ -136,4 +136,50 @@ class BackupLogController extends Controller
             'filename'   => $filename,
         ]);
     }
+
+    /**
+     * 查询某条备份记录的远程恢复任务状态（按 upload 维度）。
+     * 返回 { commands: { upload_id: { status, output, error, command_id, completed_at } } }
+     * 前端据此展示"待执行 / 执行中 / 已恢复 / 恢复失败"并轮询到终态。
+     */
+    public function restoreStatus(BackupLog $backupLog): JsonResponse
+    {
+        $server = $backupLog->server;
+        if (! $server) {
+            return response()->json(['commands' => (object) []]);
+        }
+
+        // 取该服务器下最近的 restore 命令（DB 无关：取最近若干条后在 PHP 端按 params 过滤，
+        // 避免依赖 JSON 列的 -> 操作符，兼容 MySQL/Postgres）
+        $commands = AgentCommand::where('server_id', $server->id)
+            ->where('type', AgentCommand::TYPE_RESTORE)
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get();
+
+        $out = [];
+        foreach ($commands as $cmd) {
+            $p = $cmd->params ?? [];
+            if (($p['backup_log_id'] ?? null) != $backupLog->id) {
+                continue;
+            }
+            $uploadId = $p['upload_id'] ?? null;
+            if ($uploadId === null) {
+                continue;
+            }
+            // 同一 upload 只保留最新一条命令
+            if (isset($out[$uploadId])) {
+                continue;
+            }
+            $out[$uploadId] = [
+                'status'       => $cmd->status,
+                'output'       => $cmd->output,
+                'error'        => $cmd->error,
+                'command_id'   => $cmd->id,
+                'completed_at' => $cmd->completed_at ? $cmd->completed_at->toIso8601String() : null,
+            ];
+        }
+
+        return response()->json(['commands' => (object) $out]);
+    }
 }

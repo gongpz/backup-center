@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/backup-logs', [BackupLogController::class, 'index']);
     Route::get('/backup-logs/{backupLog}', [BackupLogController::class, 'show']);
     Route::post('/backup-logs/{backupLog}/restore', [BackupLogController::class, 'restore']);
+    Route::get('/backup-logs/{backupLog}/restore-status', [BackupLogController::class, 'restoreStatus']);
     Route::delete('/backup-logs/{backupLog}', [BackupLogController::class, 'destroy']);
 
     // 存储（Rclone 配置）

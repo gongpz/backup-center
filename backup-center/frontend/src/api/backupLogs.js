@@ -13,4 +13,7 @@ export const backupLogsApi = {
   restore(id, uploadId) {
     return http.post(`/backup-logs/${id}/restore`, { upload_id: uploadId }).then((r) => r.data)
   },
+  restoreStatus(id) {
+    return http.get(`/backup-logs/${id}/restore-status`).then((r) => r.data)
+  },
 }

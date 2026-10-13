@@ -214,6 +214,7 @@ db.logs = [
 ].map((l) => ({
   ...l,
   uploads: (l.succeeded || []).map((s, i) => ({
+    id: l.id * 10 + i + 1,
     storage_name: s.storage_name,
     storage_type: i === 0 ? 'sftp' : 's3',
     status: 'uploaded',
@@ -224,6 +225,7 @@ db.logs = [
     error_message: null,
     remote_path: `/backups/${l.website.name}/${l.filename}`,
   })).concat((l.failed || []).map((f) => ({
+    id: l.id * 10 + 50 + i,
     storage_name: f.storage_name,
     storage_type: 'webdav',
     status: 'failed',
@@ -501,15 +503,38 @@ const routes = [
   )), p)],
   ['get', /^\/backup-logs\/(\d+)$/, (m) => ({ data: findById(db.logs, m[1]) || {} })],
   ['delete', /^\/backup-logs\/(\d+)$/, (m) => { removeById(db.logs, m[1]); return { message: '已删除' } }],
-  ['post', /^\/backup-logs\/(\d+)\/restore$/, (m) => {
+  ['post', /^\/backup-logs\/(\d+)\/restore$/, (m, p, body) => {
     const log = findById(db.logs, m[1])
     if (!log) return { message: '备份记录不存在' }
+    // 记录该 upload 已被"恢复"，供 restore-status 模拟已恢复态
+    if (body && body.upload_id != null) {
+      if (!db.restored) db.restored = {}
+      db.restored[body.upload_id] = true
+    }
     return {
       message: '演示环境：已模拟下发恢复指令（实际环境会由 Agent 从云端拉取归档回服务器本地目录，不自动解包 / 不自动导入数据库）',
       command_id: 900000 + Number(m[1]),
       local_dir: log.full_path ? log.full_path.replace(/\/[^/]+$/, '') : '/var/backups',
       filename: log.filename,
     }
+  }],
+  ['get', /^\/backup-logs\/(\d+)\/restore-status$/, (m) => {
+    const log = findById(db.logs, m[1])
+    const commands = {}
+    if (log && db.restored) {
+      (log.uploads || []).forEach((u) => {
+        if (db.restored[u.id]) {
+          commands[u.id] = {
+            status: 'success',
+            output: `已恢复到本地: ${log.full_path || '/var/backups'}`,
+            error: null,
+            command_id: 900000 + Number(m[1]),
+            completed_at: new Date().toISOString(),
+          }
+        }
+      })
+    }
+    return { commands }
   }],
 
   /* ---------- 资源池 ---------- */

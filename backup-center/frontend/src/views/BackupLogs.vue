@@ -115,8 +115,43 @@ const restore = (row, upload) => {
     .then(async () => {
       const res = await backupLogsApi.restore(row.id, upload.id)
       ElMessage.success(res.message || '已下发恢复指令')
+      // 乐观置为待执行，并立即拉一次状态（之后由轮询推进到终态）
+      restoreMap[upload.id] = { status: 'pending', command_id: res.command_id }
+      fetchRestoreStatus(row)
     })
     .catch(() => {})
+}
+
+// 恢复任务状态（按 upload 维度）：pending 待执行 / dispatched 执行中 / success 已恢复 / failed 失败
+const restoreMap = reactive({})
+const restoreTimers = {}
+const restoreLabel = (s) => ({ pending: '待执行', dispatched: '执行中', success: '已恢复', failed: '恢复失败' }[s] || s)
+const restoreBadgeCls = (s) => ({ pending: 'gray', dispatched: 'run', success: 'ok', failed: 'fail' }[s] || 'gray')
+const isRestoreActive = (s) => s === 'pending' || s === 'dispatched'
+
+// 拉取某备份记录的恢复任务状态，若有进行中的任务则每 3s 轮询直到终态
+const fetchRestoreStatus = async (row) => {
+  try {
+    const res = await backupLogsApi.restoreStatus(row.id)
+    const commands = res.commands || {}
+    for (const [uid, st] of Object.entries(commands)) {
+      restoreMap[uid] = st
+    }
+    const anyActive = Object.values(commands).some((s) => isRestoreActive(s.status))
+    if (anyActive) {
+      clearTimeout(restoreTimers[row.id])
+      restoreTimers[row.id] = setTimeout(() => fetchRestoreStatus(row), 3000)
+    }
+  } catch (e) {
+    // 轮询失败静默忽略（下次展开 / 操作会重试）
+  }
+}
+
+// 展开某行时拉取一次恢复状态
+const onExpand = (row, expandedRows) => {
+  if (expandedRows && expandedRows.includes(row)) {
+    fetchRestoreStatus(row)
+  }
 }
 
 const fmtTime = (iso) => {
@@ -205,6 +240,7 @@ const total = computed(() => meta.total)
         v-loading="loading"
         style="width: 100%"
         row-key="id"
+        @expand-change="onExpand"
         empty-text="暂无备份记录 · Agent 发现新备份文件后会自动上报"
       >
         <el-table-column type="expand">
@@ -259,16 +295,23 @@ const total = computed(() => meta.total)
                     <span v-else class="muted">—</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="90" fixed="right">
+                <el-table-column label="操作 / 恢复状态" width="130" fixed="right">
                   <template #default="{ row: u }">
-                    <el-button
-                      v-if="u.status === 'uploaded'"
-                      link
-                      type="primary"
-                      :icon="Download"
-                      @click="restore(row, u)"
-                    >恢复</el-button>
-                    <span v-else class="muted">—</span>
+                    <div class="restore-cell">
+                      <span
+                        v-if="restoreMap[u.id]"
+                        :class="['badge', restoreBadgeCls(restoreMap[u.id].status)]"
+                        :title="restoreMap[u.id].output || restoreMap[u.id].error || ''"
+                      >{{ restoreLabel(restoreMap[u.id].status) }}</span>
+                      <el-button
+                        v-if="u.status === 'uploaded' && (!restoreMap[u.id] || !isRestoreActive(restoreMap[u.id].status))"
+                        link
+                        type="primary"
+                        :icon="Download"
+                        @click="restore(row, u)"
+                      >恢复</el-button>
+                      <span v-if="u.status !== 'uploaded' && !restoreMap[u.id]" class="muted">—</span>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
@@ -413,6 +456,8 @@ const total = computed(() => meta.total)
 .badge.warn { background: var(--bc-warning-bg); color: var(--bc-warning); border: 1px solid var(--bc-warning-border); }
 .badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 .badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+
+.restore-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
 .expand-panel {
   padding: 12px 20px 8px 60px;
