@@ -11,6 +11,9 @@ Artisan::command('inspire', function () {
 Schedule::command('servers:cleanup')->everyMinute();
 Schedule::command('agent-commands:sweep-stale')->everyMinute();
 Schedule::command('websites:dispatch-scheduled-sync')->everyMinute();
+// 备份保留期清理：删除超期 backup_logs 并清理对应云端归档
+// 定在 03:30，避开 02:00 左右的 scheduled-sync 与 03:00 的 system:backup
+Schedule::command('bc:cleanup-retention')->dailyAt('03:30');
 
 // Backup Center 自身定时备份（读 system_settings 里的动态时间）
 // system_backup_enabled=1 才启用；system_backup_time 是 HH:MM
