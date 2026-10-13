@@ -313,7 +313,7 @@ const routes = [
   ['post', /^\/auth\/login$/, () => ({ token: 'demo-token-' + randToken(12), user: db.user })],
   ['get', /^\/auth\/me$/, () => db.user],
   ['post', /^\/auth\/logout$/, () => ({ message: '已退出登录' })],
-  ['get', /^\/auth\/bootstrap-status$/, () => ({ need_bootstrap: false })],
+  ['get', /^\/auth\/bootstrap-status$/, () => ({ need_bootstrap: false, system_name: 'backup center' })],
   ['post', /^\/auth\/bootstrap$/, () => ({ token: 'demo-token-' + randToken(12), user: db.user })],
   ['put', /^\/auth\/profile$/, (m, p, body) => {
     Object.assign(db.user, { username: body.username ?? db.user.username, name: body.name ?? db.user.name })

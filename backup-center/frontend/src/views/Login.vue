@@ -4,9 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, DataAnalysis } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 import { authApi } from '@/api/auth'
 
 const auth = useAuthStore()
+const system = useSystemStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -46,6 +48,7 @@ onMounted(async () => {
   try {
     const d = await authApi.bootstrapStatus()
     needSetup.value = !!d.need_bootstrap
+    system.setName(d.system_name)
   } catch (_) {
     needSetup.value = false
   } finally {
@@ -91,7 +94,7 @@ const onSubmit = () => {
         <div class="brand-icon">
           <el-icon size="22"><DataAnalysis /></el-icon>
         </div>
-        <h1>Backup Center</h1>
+        <h1>{{ system.systemName }}</h1>
         <p>{{ needSetup ? '初始化 · 创建管理员账号' : '统一备份管理中心' }}</p>
       </div>
       <el-form
@@ -153,7 +156,7 @@ const onSubmit = () => {
       </el-form>
     </div>
     <div class="footer-tip">
-      © Backup Center — 备份管理中心 ·
+      © {{ system.systemName }} — 备份管理中心 ·
       <a class="author-link" href="https://github.com/gongpz/" target="_blank" rel="noopener" title="GitHub @gongpz">By：Mask</a>
     </div>
   </div>

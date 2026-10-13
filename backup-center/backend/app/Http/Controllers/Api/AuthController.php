@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\LoginLog;
+use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,7 +63,10 @@ class AuthController extends Controller
      */
     public function bootstrapStatus(): JsonResponse
     {
-        return response()->json(['need_bootstrap' => User::count() === 0]);
+        return response()->json([
+            'need_bootstrap' => User::count() === 0,
+            'system_name'    => SystemSetting::get('system_name', 'backup center'),
+        ]);
     }
 
     /**
