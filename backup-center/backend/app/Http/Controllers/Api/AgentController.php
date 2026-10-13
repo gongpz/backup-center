@@ -327,6 +327,17 @@ class AgentController extends Controller
                     'file_pattern' => $first['pattern'] ?? '*',
                     'retention_days' => $w->retention_days,
                     'storage_ids' => $effectiveIds,
+                    // 自主压缩（P3）所需：Agent 据此 tar 网站根目录 + 导出数据库。
+                    // db_password 经 Website::dbPassword Attribute 解密后以明文下发（同 Storage.config 通道，
+                    // 仅驻留 Agent 内存，绝不通过 AgentCommand.params 持久化）。
+                    'backup_source' => $w->backup_source,
+                    'web_root' => $w->web_root,
+                    'db_type' => $w->db_type,
+                    'db_host' => $w->db_host,
+                    'db_port' => $w->db_port,
+                    'db_name' => $w->db_name,
+                    'db_user' => $w->db_user,
+                    'db_password' => $w->db_password,
                 ];
             }),
         ]);
