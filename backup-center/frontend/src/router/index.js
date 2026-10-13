@@ -34,6 +34,11 @@ const routes = [
         component: () => import('@/views/BackupLogs.vue'),
       },
       {
+        path: 'restore',
+        name: 'restore',
+        component: () => import('@/views/Restore.vue'),
+      },
+      {
         path: 'storages',
         name: 'storages',
         component: () => import('@/views/Storages.vue'),

@@ -1,11 +1,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search, Delete, Download } from '@element-plus/icons-vue'
+import { Refresh, Search, Delete } from '@element-plus/icons-vue'
 import { backupLogsApi } from '@/api/backupLogs'
 import { websitesApi } from '@/api/websites'
 import { serversApi } from '@/api/servers'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+
+const router = useRouter()
+// 恢复功能已独立为「数据恢复」栏目
+const gotoRestore = () => router.push('/restore')
 
 const list = ref([])
 const meta = reactive({ current_page: 1, total: 0, per_page: 20 })
@@ -102,64 +107,6 @@ const remove = (row) => {
     .catch(() => {})
 }
 
-// 远程恢复（最小可用版）：把该备份从云端某存储下载回服务器本地目录。
-// 不自动解包 / 不自动导入数据库，由管理员手动处理。
-const restore = (row, upload) => {
-  const localDir = row.full_path ? dirname(row.full_path) : '原备份目录'
-  ElMessageBox.confirm(
-    `确认从存储「${upload.storage_name}」恢复该历史备份？系统会把云端归档下载回服务器本地目录（${localDir}），` +
-    `但最小可用版仅下载归档，不自动解包、不自动导入数据库，需管理员手动解压 / 导入。`,
-    '远程恢复',
-    { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
-  )
-    .then(async () => {
-      const res = await backupLogsApi.restore(row.id, upload.id)
-      ElMessage.success(res.message || '已下发恢复指令')
-      // 乐观置为待执行，并立即拉一次状态（之后由轮询推进到终态）
-      restoreMap[upload.id] = { status: 'pending', command_id: res.command_id }
-      fetchRestoreStatus(row)
-    })
-    .catch(() => {})
-}
-
-// 恢复任务状态（按 upload 维度）：pending 待执行 / dispatched 执行中 / success 已恢复 / failed 失败
-const restoreMap = reactive({})
-const restoreTimers = {}
-const restoreLabel = (s) => ({ pending: '待执行', dispatched: '执行中', success: '已恢复', failed: '恢复失败' }[s] || s)
-const restoreBadgeCls = (s) => ({ pending: 'gray', dispatched: 'run', success: 'ok', failed: 'fail' }[s] || 'gray')
-const isRestoreActive = (s) => s === 'pending' || s === 'dispatched'
-// 展示用文案：执行中/成功用 output（进度或最终路径），失败用 error
-const restoreMsg = (st) => {
-  if (!st) return ''
-  if (st.status === 'failed') return st.error || ''
-  return st.output || ''
-}
-
-// 拉取某备份记录的恢复任务状态，若有进行中的任务则每 3s 轮询直到终态
-const fetchRestoreStatus = async (row) => {
-  try {
-    const res = await backupLogsApi.restoreStatus(row.id)
-    const commands = res.commands || {}
-    for (const [uid, st] of Object.entries(commands)) {
-      restoreMap[uid] = st
-    }
-    const anyActive = Object.values(commands).some((s) => isRestoreActive(s.status))
-    if (anyActive) {
-      clearTimeout(restoreTimers[row.id])
-      restoreTimers[row.id] = setTimeout(() => fetchRestoreStatus(row), 3000)
-    }
-  } catch (e) {
-    // 轮询失败静默忽略（下次展开 / 操作会重试）
-  }
-}
-
-// 展开某行时拉取一次恢复状态
-const onExpand = (row, expandedRows) => {
-  if (expandedRows && expandedRows.includes(row)) {
-    fetchRestoreStatus(row)
-  }
-}
-
 const fmtTime = (iso) => {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -246,7 +193,6 @@ const total = computed(() => meta.total)
         v-loading="loading"
         style="width: 100%"
         row-key="id"
-        @expand-change="onExpand"
         empty-text="暂无备份记录 · Agent 发现新备份文件后会自动上报"
       >
         <el-table-column type="expand">
@@ -301,32 +247,10 @@ const total = computed(() => meta.total)
                     <span v-else class="muted">—</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作 / 恢复状态" width="150" fixed="right">
-                  <template #default="{ row: u }">
-                    <div class="restore-cell">
-                      <span
-                        v-if="restoreMap[u.id]"
-                        :class="['badge', restoreBadgeCls(restoreMap[u.id].status)]"
-                        :title="restoreMap[u.id].output || restoreMap[u.id].error || ''"
-                      >{{ restoreLabel(restoreMap[u.id].status) }}</span>
-                      <el-button
-                        v-if="u.status === 'uploaded' && (!restoreMap[u.id] || !isRestoreActive(restoreMap[u.id].status))"
-                        link
-                        type="primary"
-                        :icon="Download"
-                        @click="restore(row, u)"
-                      >恢复</el-button>
-                      <span v-if="u.status !== 'uploaded' && !restoreMap[u.id]" class="muted">—</span>
-                    </div>
-                    <div
-                      v-if="restoreMap[u.id] && restoreMsg(restoreMap[u.id])"
-                      class="restore-msg"
-                      :class="{ 'restore-msg-err': restoreMap[u.id].status === 'failed' }"
-                      :title="restoreMsg(restoreMap[u.id])"
-                    >{{ restoreMsg(restoreMap[u.id]) }}</div>
-                  </template>
-                </el-table-column>
               </el-table>
+              <div class="expand-foot">
+                <el-button link type="primary" @click="gotoRestore">去数据恢复 →</el-button>
+              </div>
               <div v-if="row.error_message" class="log-err">
                 <b>备份错误：</b>{{ row.error_message }}
               </div>
@@ -469,19 +393,6 @@ const total = computed(() => meta.total)
 .badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 .badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
-.restore-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.restore-msg {
-  margin-top: 3px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--bc-text-secondary);
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.restore-msg-err { color: var(--bc-danger); }
-
 .expand-panel {
   padding: 12px 20px 8px 60px;
   background: var(--bc-bg-page);
@@ -492,6 +403,8 @@ const total = computed(() => meta.total)
   color: var(--bc-text-primary);
   margin-bottom: 8px;
 }
+.expand-foot { margin-top: 8px; }
+.expand-foot .el-button { margin-left: 0; padding-left: 0; }
 .expand-empty {
   padding: 12px;
   color: var(--bc-text-secondary);

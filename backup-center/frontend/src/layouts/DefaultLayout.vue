@@ -41,6 +41,7 @@ const menusAll = [
   { path: '/servers', title: '服务器', icon: 'Monitor' },
   { path: '/websites', title: '网站', icon: 'Cpu' },
   { path: '/backup-logs', title: '备份记录', icon: 'Files' },
+  { path: '/restore', title: '数据恢复', icon: 'RefreshLeft' },
   { path: '/storages', title: '存储', icon: 'Cloudy' },
   { path: '/resource-library', title: '资源库', icon: 'FolderOpened' },
   { path: '/help', title: '帮助中心', icon: 'QuestionFilled' },
