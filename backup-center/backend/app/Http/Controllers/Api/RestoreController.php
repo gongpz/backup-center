@@ -36,6 +36,8 @@ class RestoreController extends Controller
                 'name' => $w->name,
                 'domain' => $w->domain,
                 'server_name' => $w->server?->name,
+                'restore_mode' => $w->restore_mode ?? 'lite',
+                'web_root' => $w->web_root,
                 'last_backup_at' => $w->last_backup_at?->toIso8601String(),
                 'last_backup_status' => $w->last_backup_status,
             ]);
@@ -132,7 +134,7 @@ class RestoreController extends Controller
             'backup_log_ids.*' => ['integer'],
         ]);
 
-        $logs = BackupLog::with('uploads')->whereIn('id', $data['backup_log_ids'])->get();
+        $logs = BackupLog::with(['uploads', 'website'])->whereIn('id', $data['backup_log_ids'])->get();
 
         $results = [];
         $skipped = [];
@@ -157,10 +159,19 @@ class RestoreController extends Controller
                 continue;
             }
 
-            $localDir = $log->full_path ? dirname($log->full_path) : '';
-            if ($localDir === '' || $localDir === '.') {
-                $skipped[] = ['backup_log_id' => $log->id, 'reason' => '备份记录缺少本地路径，无法定位恢复目录'];
-                continue;
+            // restore_mode：advanced 用临时中转目录，lite 保持原 dirname(full_path) 行为
+            $website = $log->website;
+            $mode = $website ? ($website->restore_mode ?? 'lite') : 'lite';
+
+            if ($mode === 'advanced') {
+                // 不直接覆盖线上 web_root；Agent 把归档 rclone 到此中转目录，再解压到 web_root 的父级
+                $localDir = sys_get_temp_dir() . '/bc-restore-' . ($website->id ?? $log->id) . '-' . time();
+            } else {
+                $localDir = $log->full_path ? dirname($log->full_path) : '';
+                if ($localDir === '' || $localDir === '.') {
+                    $skipped[] = ['backup_log_id' => $log->id, 'reason' => '备份记录缺少本地路径，无法定位恢复目录'];
+                    continue;
+                }
             }
 
             // 同一 upload 已有进行中的 restore 命令 → 跳过该文件（替代原服务器级 409）
@@ -170,6 +181,7 @@ class RestoreController extends Controller
                 ->limit(100)
                 ->get()
                 ->contains(fn ($c) => ($c->params['upload_id'] ?? null) == $upload->id
+                    && ($c->params['restore_mode'] ?? 'lite') === $mode
                     && in_array($c->status, [AgentCommand::STATUS_PENDING, AgentCommand::STATUS_DISPATCHED], true));
 
             if ($conflict) {
@@ -177,17 +189,24 @@ class RestoreController extends Controller
                 continue;
             }
 
+            $params = [
+                'backup_log_id' => $log->id,
+                'upload_id' => $upload->id,
+                'remote_path' => $upload->remote_path,
+                'local_dir' => $localDir,
+                'filename' => basename($upload->remote_path),
+            ];
+            // advanced 模式：携带 restore_mode + website_id（不含任何 db_* 凭据），由 Agent 自行解析 web_root/db
+            if ($mode === 'advanced' && $website) {
+                $params['restore_mode'] = 'advanced';
+                $params['website_id'] = $website->id;
+            }
+
             $cmd = AgentCommand::create([
                 'server_id' => $server->id,
                 'type' => AgentCommand::TYPE_RESTORE,
                 'status' => AgentCommand::STATUS_PENDING,
-                'params' => [
-                    'backup_log_id' => $log->id,
-                    'upload_id' => $upload->id,
-                    'remote_path' => $upload->remote_path,
-                    'local_dir' => $localDir,
-                    'filename' => basename($upload->remote_path),
-                ],
+                'params' => $params,
             ]);
 
             $results[(string) $log->id] = [
