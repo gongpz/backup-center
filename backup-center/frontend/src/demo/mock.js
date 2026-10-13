@@ -152,14 +152,14 @@ const db = {
   },
 
   settings: {
-    system_name: '美乐备份中心',
+    system_name: 'backup center',
     agent_mirror_url: 'https://bc-resource-1258000000.cos.ap-guangzhou.myqcloud.com/agent',
     agent_mirror_url_r2: 'https://mirror.example.com/agent',
     system_backup_enabled: true,
     system_backup_time: '03:00',
     footer_config: {
       enabled: true,
-      copyright: '© 美乐备份中心',
+      copyright: '© backup center',
       disclaimer: '本站为演示环境，全部数据均为示例数据，不代表任何真实业务。',
       custom_html: '',
       show_versions: true,
