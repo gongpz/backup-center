@@ -131,6 +131,11 @@ type CommandResultRequest struct {
 	Error     string `json:"error,omitempty"`
 }
 
+type CommandProgressRequest struct {
+	CommandID int64  `json:"command_id"`
+	Output    string `json:"output"`
+}
+
 type diskEntry struct {
 	Mount     string `json:"mount"`
 	FS        string `json:"fs"`
@@ -243,6 +248,11 @@ func (c *Client) Heartbeat(m *sysinfo.Metrics) (*HeartbeatResponse, error) {
 
 func (c *Client) CommandResult(req *CommandResultRequest) error {
 	return c.post("/api/agent/command-result", req, nil)
+}
+
+// CommandProgress 上报长任务（如 restore）执行期间的进度文本（不改终态）
+func (c *Client) CommandProgress(req *CommandProgressRequest) error {
+	return c.post("/api/agent/command-progress", req, nil)
 }
 
 func (c *Client) Websites() ([]Website, error) {

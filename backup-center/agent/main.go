@@ -434,7 +434,7 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 	case "restore":
 		// 远程恢复（最小可用版）：把云端归档 rclone copy 回原本地目录，
 		// 不做解包 / 不自动导入数据库，由管理员手动处理（解压 tar / 导入 .sql）
-		output, err := performRestore(cmd)
+		output, err := performRestore(cmd, c)
 		if err != nil {
 			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
 			_ = c.CommandResult(&client.CommandResultRequest{
@@ -464,7 +464,8 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 // remote_path 形如 bc_14:bucket/backups/站点/20260809/file.tar.gz（已含 rclone remote 前缀），
 // 因此无需再解析 storage_id，直接复用 rclone.conf 里的 bc_<id> remote 即可。
 // 仅下载归档，不自动解包 / 不自动导入数据库。
-func performRestore(cmd *client.PendingCommand) (string, error) {
+// 长任务期间每 5s 通过 c.CommandProgress 上报 rclone 最新进度行（status 保持 dispatched）。
+func performRestore(cmd *client.PendingCommand, c *client.Client) (string, error) {
 	p := cmd.Params
 	if p == nil {
 		return "", fmt.Errorf("恢复指令缺少参数")
@@ -489,15 +490,54 @@ func performRestore(cmd *client.PendingCommand) (string, error) {
 		"--transfers", "1",
 		"--retries", "3",
 		"--low-level-retries", "5",
-		"--stats", "0",
+		"--stats", "5s",         // 每 5s 打一次进度
+		"--stats-one-line",      // 单行进度（便于抓取）
+		"--log-level", "NOTICE", // 压掉逐文件 INFO 日志，保留进度行与错误
 		remotePath, dest,
 	)
-	stderr := &strings.Builder{}
-	rcmd.Stderr = stderr
-	if err := rcmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
+	// stderr 同时写入完整错误缓冲 + 进度抓取器：失败时用前者做错误信息，运行期用后者上报进度
+	fullErr := &strings.Builder{}
+	tracker := &progressTracker{}
+	rcmd.Stderr = io.MultiWriter(fullErr, tracker)
+
+	// 长任务进度回报：每 5s 把 rclone 最新进度行推给 Center（status 保持 dispatched）
+	stop := make(chan struct{})
+	var progWg sync.WaitGroup
+	progWg.Add(1)
+	go func() {
+		defer progWg.Done()
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		last := ""
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				line := tracker.last()
+				if line == "" || line == last {
+					continue
+				}
+				last = line
+				if len(line) > 300 {
+					line = line[:300] + "…"
+				}
+				_ = c.CommandProgress(&client.CommandProgressRequest{
+					CommandID: cmd.ID,
+					Output:    line,
+				})
+			}
+		}
+	}()
+
+	runErr := rcmd.Run()
+	close(stop)
+	progWg.Wait()
+
+	if runErr != nil {
+		msg := strings.TrimSpace(fullErr.String())
 		if msg == "" {
-			msg = err.Error()
+			msg = runErr.Error()
 		}
 		if len(msg) > 1800 {
 			msg = msg[:1800] + "…"
@@ -506,6 +546,32 @@ func performRestore(cmd *client.PendingCommand) (string, error) {
 	}
 
 	return fmt.Sprintf("已恢复到本地: %s", dest), nil
+}
+
+// progressTracker 从 rclone stderr 抓取"最新一行非空进度"（--stats-one-line 用 \r 覆盖刷新，
+// 日志用 \n 分隔；按 \r/\n 切分取最后一个非空片段）。
+type progressTracker struct {
+	mu   sync.Mutex
+	line string
+}
+
+func (t *progressTracker) Write(p []byte) (int, error) {
+	parts := strings.FieldsFunc(string(p), func(r rune) bool { return r == '\r' || r == '\n' })
+	for i := len(parts) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(parts[i]); s != "" {
+			t.mu.Lock()
+			t.line = s
+			t.mu.Unlock()
+			break
+		}
+	}
+	return len(p), nil
+}
+
+func (t *progressTracker) last() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.line
 }
 
 func downloadFile(url, dest string) error {

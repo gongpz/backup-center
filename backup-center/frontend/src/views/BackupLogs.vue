@@ -128,6 +128,12 @@ const restoreTimers = {}
 const restoreLabel = (s) => ({ pending: '待执行', dispatched: '执行中', success: '已恢复', failed: '恢复失败' }[s] || s)
 const restoreBadgeCls = (s) => ({ pending: 'gray', dispatched: 'run', success: 'ok', failed: 'fail' }[s] || 'gray')
 const isRestoreActive = (s) => s === 'pending' || s === 'dispatched'
+// 展示用文案：执行中/成功用 output（进度或最终路径），失败用 error
+const restoreMsg = (st) => {
+  if (!st) return ''
+  if (st.status === 'failed') return st.error || ''
+  return st.output || ''
+}
 
 // 拉取某备份记录的恢复任务状态，若有进行中的任务则每 3s 轮询直到终态
 const fetchRestoreStatus = async (row) => {
@@ -295,7 +301,7 @@ const total = computed(() => meta.total)
                     <span v-else class="muted">—</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作 / 恢复状态" width="130" fixed="right">
+                <el-table-column label="操作 / 恢复状态" width="150" fixed="right">
                   <template #default="{ row: u }">
                     <div class="restore-cell">
                       <span
@@ -312,6 +318,12 @@ const total = computed(() => meta.total)
                       >恢复</el-button>
                       <span v-if="u.status !== 'uploaded' && !restoreMap[u.id]" class="muted">—</span>
                     </div>
+                    <div
+                      v-if="restoreMap[u.id] && restoreMsg(restoreMap[u.id])"
+                      class="restore-msg"
+                      :class="{ 'restore-msg-err': restoreMap[u.id].status === 'failed' }"
+                      :title="restoreMsg(restoreMap[u.id])"
+                    >{{ restoreMsg(restoreMap[u.id]) }}</div>
                   </template>
                 </el-table-column>
               </el-table>
@@ -458,6 +470,17 @@ const total = computed(() => meta.total)
 .badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
 .restore-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.restore-msg {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--bc-text-secondary);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.restore-msg-err { color: var(--bc-danger); }
 
 .expand-panel {
   padding: 12px 20px 8px 60px;

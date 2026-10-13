@@ -202,6 +202,34 @@ class AgentController extends Controller
     }
 
     /**
+     * 长任务进度回报（不改状态 / 不改 completed_at）：Agent 在执行耗时命令（如 restore）期间
+     * 周期性上报最新进度文本，仅更新 agent_commands.output 供前端实时展示。
+     * 终态仍走 commandResult。
+     */
+    public function commandProgress(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'command_id' => ['required', 'integer'],
+            'output'     => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        /** @var Server $server */
+        $server = $request->attributes->get('server');
+
+        $cmd = AgentCommand::where('id', $data['command_id'])
+            ->where('server_id', $server->id)
+            ->whereIn('status', [AgentCommand::STATUS_PENDING, AgentCommand::STATUS_DISPATCHED])
+            ->first();
+        if (! $cmd) {
+            return response()->json(['ok' => false, 'message' => 'command not found or already finalized'], 404);
+        }
+
+        $cmd->update(['output' => $data['output'] ?? null]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * Agent 拉取本服务器要监控的网站列表 + 关联的存储（含解密 config）。
      * Agent 用这些数据生成 rclone.conf 并对每个新备份文件调 rclone copy。
      */

@@ -27,6 +27,7 @@ Route::prefix('agent')->middleware('agent')->group(function () {
     Route::post('/report', [AgentController::class, 'report']);
     Route::post('/upload-report', [AgentController::class, 'uploadReport']);
     Route::post('/command-result', [AgentController::class, 'commandResult']);
+    Route::post('/command-progress', [AgentController::class, 'commandProgress']);
 });
 
 /* ---------- Web 管理后台（Sanctum token） ---------- */
