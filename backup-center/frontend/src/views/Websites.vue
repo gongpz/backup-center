@@ -1,12 +1,13 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Sort } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Sort, Key } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
 import { serversApi } from '@/api/servers'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { humanize as humanizeSchedule } from '@/utils/schedule'
 import WebsiteFormDialog from '@/components/WebsiteFormDialog.vue'
+import WebsiteBindDialog from '@/components/WebsiteBindDialog.vue'
 
 const list = ref([])
 const meta = reactive({ current_page: 1, total: 0, per_page: 20 })
@@ -70,6 +71,15 @@ const openEdit = (row) => {
   formOpen.value = true
 }
 const onSaved = () => fetch()
+
+/* 根目录绑定对话框 */
+const bindOpen = ref(false)
+const bindingWebsite = ref(null)
+const openBind = (row) => {
+  bindingWebsite.value = row
+  bindOpen.value = true
+}
+const onBindSaved = () => fetch()
 
 // 一键同步：触发所属 Agent 立即扫描 backup_paths，把未上传的文件推到各存储
 const syncingIds = ref(new Set())
@@ -244,6 +254,15 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
+        <el-table-column label="网站根目录" min-width="200">
+          <template #default="{ row }">
+            <div v-if="row.web_root" class="root-cell">
+              <span class="chip chip-cyan mono" :title="`绑定于 ${fmtFull(row.root_bound_at)}`">{{ row.web_root }}</span>
+            </div>
+            <span v-else class="muted">未绑定</span>
+          </template>
+        </el-table-column>
+
         <el-table-column label="最近备份" min-width="230">
           <template #default="{ row }">
             <div v-if="row.recent_backups?.length" class="recent-backups">
@@ -309,7 +328,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button
@@ -319,6 +338,7 @@ const total = computed(() => meta.total)
                 :loading="syncingIds.has(row.id)"
                 @click="syncNow(row)"
               >同步</el-button>
+              <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
             </div>
@@ -338,6 +358,7 @@ const total = computed(() => meta.total)
     </div>
 
     <WebsiteFormDialog v-model="formOpen" :website="editing" @saved="onSaved" />
+    <WebsiteBindDialog v-model="bindOpen" :website="bindingWebsite" @saved="onBindSaved" />
   </div>
 </template>
 
@@ -397,6 +418,13 @@ const total = computed(() => meta.total)
   gap: 6px;
   padding: 2px 0;
 }
+.root-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.root-cell .chip { max-width: 100%; }
+.root-cell .mono { overflow: hidden; text-overflow: ellipsis; }
 .paths-row {
   display: flex;
   align-items: center;

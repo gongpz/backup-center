@@ -37,6 +37,22 @@ class WebsiteResource extends JsonResource
             'retention_days' => $this->retention_days,
             'schedule' => $this->schedule,
             'sync_mode' => $this->sync_mode ?: 'auto',
+            'backup_source' => $this->backup_source ?: 'external',
+            'restore_mode' => $this->restore_mode ?: 'lite',
+
+            // 根目录绑定
+            'bind_token' => $this->bind_token,
+            'web_root' => $this->web_root,
+            'root_bound_at' => $this->root_bound_at?->toIso8601String(),
+
+            // 数据库连接（P3/P4 用；密码不回传明文，仅告知是否已配置）
+            'db_type' => $this->db_type,
+            'db_host' => $this->db_host,
+            'db_port' => $this->db_port,
+            'db_name' => $this->db_name,
+            'db_user' => $this->db_user,
+            'db_password_set' => ! empty($this->db_password),
+
             'status' => $this->status,
             'remark' => $this->remark,
 

@@ -113,14 +113,14 @@ const db = {
   ],
 
   websites: [
-    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站', storage_ids: [1, 2] },
-    { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1] },
-    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3] },
-    { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2] },
-    { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2] },
-    { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1] },
-    { id: 7, name: 'API 网关', domain: 'api.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: 'Kong 配置', path: '/etc/kong', pattern: '' }], recent_backups: [{ log: mkLog(15826, 'API 网关', 'jp-edge-03', 260 * MB, 'success', 52) }], schedule: '0 6 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [2] },
-    { id: 8, name: '旧版官网', domain: 'old.example.com', server_id: 4, server: { name: 'us-backup-04', connect_type: 'agent' }, backup_paths: [{ label: '旧站目录', path: '/var/www/old', pattern: '' }], recent_backups: [{ log: mkLog(15825, '旧版官网', 'us-backup-04', 1.2 * GB, 'success', 320) }], schedule: '0 2 * * 0', sync_mode: 'auto', retention_days: 7, status: 'disabled', remark: '已下线，保留归档', storage_ids: [1] },
+    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站', storage_ids: [1, 2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 7, name: 'API 网关', domain: 'api.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: 'Kong 配置', path: '/etc/kong', pattern: '' }], recent_backups: [{ log: mkLog(15826, 'API 网关', 'jp-edge-03', 260 * MB, 'success', 52) }], schedule: '0 6 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 8, name: '旧版官网', domain: 'old.example.com', server_id: 4, server: { name: 'us-backup-04', connect_type: 'agent' }, backup_paths: [{ label: '旧站目录', path: '/var/www/old', pattern: '' }], recent_backups: [{ log: mkLog(15825, '旧版官网', 'us-backup-04', 1.2 * GB, 'success', 320) }], schedule: '0 2 * * 0', sync_mode: 'auto', retention_days: 7, status: 'disabled', remark: '已下线，保留归档', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
   ],
 
   storages: [
@@ -426,6 +426,12 @@ const routes = [
       status: body.status || 'enabled',
       remark: body.remark || '',
       storage_ids: body.storage_ids || [],
+      backup_source: body.backup_source || 'external',
+      restore_mode: body.restore_mode || 'lite',
+      bind_token: randToken(),
+      web_root: null,
+      root_bound_at: null,
+      db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false,
     }
     db.websites.push(w)
     return { data: w }
@@ -439,6 +445,21 @@ const routes = [
   }],
   ['delete', /^\/websites\/(\d+)$/, (m) => { removeById(db.websites, m[1]); return { message: '已删除' } }],
   ['post', /^\/websites\/(\d+)\/sync-now$/, () => ({ message: '已下发同步指令，最长 60 秒内 Agent 会执行' })],
+  ['post', /^\/websites\/(\d+)\/bind-root$/, (m, p, body) => {
+    const w = findById(db.websites, m[1])
+    if (!w) return { __error: { status: 404, message: '网站不存在' } }
+    if (w.server?.connect_type !== 'agent') {
+      return { __error: { status: 422, message: '该网站所属服务器不是 Agent 模式，无法绑定' } }
+    }
+    let root = (body.direct_path || '').trim()
+    if (!root) {
+      const base = ((body.search_bases || [])[0] || '/www/wwwroot').trim().replace(/\/$/, '')
+      root = `${base}/${w.domain || w.name}`
+    }
+    w.web_root = root
+    w.root_bound_at = new Date().toISOString()
+    return { message: '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件', command_id: nextId('cmd') }
+  }],
   ['post', /^\/system\/backup$/, () => {
     const filename = `bc-system-${new Date(NOW).toISOString().slice(0, 10)}.tar.gz`
     const targets = db.storages.filter((s) => s.is_mandatory && s.status === 'enabled')
@@ -695,7 +716,21 @@ export async function mockAdapter(config) {
     if (m !== method) continue
     const match = url.match(pattern)
     if (!match) continue
-    return respond(handler(match, params, body), config)
+    const result = handler(match, params, body)
+    // 处理器可用 { __error: { status, message } } 模拟后端错误响应（走与线上一致的拦截器逻辑）
+    if (result && typeof result === 'object' && result.__error) {
+      const err = new Error(result.__error.message || '请求失败')
+      err.response = {
+        data: { message: result.__error.message },
+        status: result.__error.status || 422,
+        statusText: '',
+        headers: {},
+        config,
+      }
+      err.config = config
+      throw err
+    }
+    return respond(result, config)
   }
 
   console.warn('[demo] 未覆盖的接口', method, url)

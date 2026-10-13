@@ -19,6 +19,9 @@ export const websitesApi = {
   syncNow(id) {
     return http.post(`/websites/${id}/sync-now`).then((r) => r.data)
   },
+  bindRoot(id, payload) {
+    return http.post(`/websites/${id}/bind-root`, payload).then((r) => r.data)
+  },
 }
 
 export const systemApi = {

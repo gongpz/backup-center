@@ -198,7 +198,38 @@ class AgentController extends Controller
             'completed_at' => now(),
         ]);
 
+        // bind_root 成功：把 Agent 回传的 web_root 写进对应网站
+        if ($cmd->type === AgentCommand::TYPE_BIND_ROOT && $data['status'] === AgentCommand::STATUS_SUCCESS) {
+            $this->applyBindResult($cmd, $data['output'] ?? '');
+        }
+
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * 解析 bind_root 命令的 output（JSON {web_root: "..."}）并回写到网站的 web_root / root_bound_at。
+     */
+    private function applyBindResult(AgentCommand $cmd, string $output): void
+    {
+        $p = $cmd->params ?? [];
+        $websiteId = $p['website_id'] ?? null;
+        if (! $websiteId) {
+            return;
+        }
+        $decoded = json_decode($output, true);
+        $webRoot = is_array($decoded) ? ($decoded['web_root'] ?? null) : null;
+        if (! $webRoot) {
+            return;
+        }
+        $website = Website::where('id', $websiteId)
+            ->where('server_id', $cmd->server_id)
+            ->first();
+        if (! $website) {
+            return;
+        }
+        $website->web_root = $webRoot;
+        $website->root_bound_at = now();
+        $website->save();
     }
 
     /**

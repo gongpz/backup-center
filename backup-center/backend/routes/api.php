@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 网站管理
     Route::apiResource('websites', WebsiteController::class);
     Route::post('/websites/{website}/sync-now', [WebsiteController::class, 'syncNow']);
+    Route::post('/websites/{website}/bind-root', [WebsiteController::class, 'bindRoot']);
 
     // 系统一键备份（把 Backup Center 自己打包上传到强制备份存储）
     Route::post('/system/backup', [SystemSettingController::class, 'backupNow']);

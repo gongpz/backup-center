@@ -43,6 +43,11 @@ class WebsiteController extends Controller
         $storageIds = $this->extractStorageIds($data);
 
         $website = Website::create($data);
+        // 建站即生成根目录绑定令牌（用户把 .bc-bind-<token> 放进网站根目录后，Agent 据此定位根目录）
+        if (! $website->bind_token) {
+            $website->bind_token = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(32));
+            $website->save();
+        }
         if ($storageIds !== null) {
             $website->storages()->sync($storageIds);
         }
@@ -115,6 +120,64 @@ class WebsiteController extends Controller
         ]);
     }
 
+    /**
+     * 根目录绑定：下发 bind_root 指令，让 Agent 校验/搜索密钥文件(.bc-bind-<token>)并回传网站根目录。
+     * 支持两种方式：direct_path（用户直接填根目录，Agent 校验密钥文件在不在）或 search_bases（Agent 有界搜索）。
+     */
+    public function bindRoot(Website $website, Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'direct_path'    => ['nullable', 'string', 'max:255'],
+            'search_bases'   => ['nullable', 'array', 'max:10'],
+            'search_bases.*' => ['string', 'max:255'],
+        ]);
+
+        $server = $website->server;
+        if (! $server || $server->connect_type !== Server::CONNECT_AGENT) {
+            return response()->json(['message' => '该网站所属服务器不是 Agent 模式，无法绑定'], 422);
+        }
+
+        if (! $website->bind_token) {
+            $website->bind_token = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(32));
+            $website->save();
+        }
+
+        // 防重复：该网站已有进行中的 bind_root 则复用
+        $active = $server->agentCommands()
+            ->where('type', \App\Models\AgentCommand::TYPE_BIND_ROOT)
+            ->whereIn('status', [\App\Models\AgentCommand::STATUS_PENDING, \App\Models\AgentCommand::STATUS_DISPATCHED])
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get()
+            ->first(function ($c) use ($website) {
+                $p = $c->params ?? [];
+                return ($p['website_id'] ?? null) == $website->id;
+            });
+        if ($active) {
+            return response()->json([
+                'message'    => '该网站已有绑定任务在进行中，最长 60 秒内 Agent 会执行',
+                'command_id' => $active->id,
+            ]);
+        }
+
+        $cmd = \App\Models\AgentCommand::create([
+            'server_id' => $server->id,
+            'type'      => \App\Models\AgentCommand::TYPE_BIND_ROOT,
+            'status'    => \App\Models\AgentCommand::STATUS_PENDING,
+            'params'    => [
+                'website_id'   => $website->id,
+                'bind_token'   => $website->bind_token,
+                'direct_path'  => $data['direct_path'] ?? null,
+                'search_bases' => $data['search_bases'] ?? [],
+            ],
+        ]);
+
+        return response()->json([
+            'message'    => '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件',
+            'command_id' => $cmd->id,
+        ]);
+    }
+
     private function validated(Request $request): array
     {
         return $request->validate([
@@ -129,6 +192,9 @@ class WebsiteController extends Controller
             'schedule' => ['nullable', 'string', 'max:64', 'regex:/^([01]\d|2[0-3]):[0-5]\d$/'],
             // 同步方式：auto=自动扫描（现行为），scheduled=只在 schedule 设定时间由 Center 派发 sync_now
             'sync_mode' => ['nullable', 'string', Rule::in(['auto', 'scheduled'])],
+            // 备份来源 / 恢复模式（P1 仅存值，self/advanced 的执行能力在 P3/P4 落地）
+            'backup_source' => ['nullable', 'string', Rule::in([Website::BACKUP_SOURCE_EXTERNAL, Website::BACKUP_SOURCE_SELF])],
+            'restore_mode' => ['nullable', 'string', Rule::in([Website::RESTORE_MODE_LITE, Website::RESTORE_MODE_ADVANCED])],
             'status' => ['nullable', Rule::in([Website::STATUS_ENABLED, Website::STATUS_DISABLED])],
             'remark' => ['nullable', 'string', 'max:500'],
             'storage_ids' => ['nullable', 'array'],

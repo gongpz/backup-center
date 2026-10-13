@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Crypt;
 
 class Website extends Model
 {
@@ -14,6 +16,18 @@ class Website extends Model
     public const BACKUP_FAILED  = 'failed';
     public const BACKUP_RUNNING = 'running';
 
+    // 备份来源：external=第三方压缩/监控文件夹；self=系统自主压缩（P3）
+    public const BACKUP_SOURCE_EXTERNAL = 'external';
+    public const BACKUP_SOURCE_SELF     = 'self';
+
+    // 恢复模式：lite=轻便（拉回备份目录手动恢复）；advanced=高级自动恢复（P4）
+    public const RESTORE_MODE_LITE      = 'lite';
+    public const RESTORE_MODE_ADVANCED  = 'advanced';
+
+    // 数据库类型（P3/P4）
+    public const DB_TYPE_MYSQL      = 'mysql';
+    public const DB_TYPE_POSTGRESQL = 'postgresql';
+
     protected $fillable = [
         'server_id',
         'name',
@@ -22,6 +36,17 @@ class Website extends Model
         'retention_days',
         'schedule',
         'sync_mode',
+        'backup_source',
+        'restore_mode',
+        'bind_token',
+        'web_root',
+        'root_bound_at',
+        'db_type',
+        'db_host',
+        'db_port',
+        'db_name',
+        'db_user',
+        'db_password',
         'status',
         'remark',
         'last_backup_at',
@@ -38,7 +63,19 @@ class Website extends Model
             'backup_paths' => 'array',
             'last_backup_at' => 'datetime',
             'last_backup_size' => 'integer',
+            'root_bound_at' => 'datetime',
         ];
+    }
+
+    /**
+     * 数据库密码：存储时加密、读取时解密（仿 Storage.config）。
+     */
+    protected function dbPassword(): Attribute
+    {
+        return Attribute::make(
+            get: fn ($value) => ($value === null || $value === '') ? null : Crypt::decryptString($value),
+            set: fn ($value) => ($value === null || $value === '') ? null : Crypt::encryptString($value),
+        );
     }
 
     public function server(): BelongsTo

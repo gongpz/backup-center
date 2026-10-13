@@ -40,6 +40,11 @@ const form = reactive({
   // 同步方式（R79）：auto=Agent 自动扫描；scheduled=按 schedule_time 每天派 sync_now
   sync_mode: 'auto',
   schedule_time: '03:00',
+
+  // 备份来源（P1）：external=沿用服务器上的第三方/外部压缩产物；self=由本系统自主压缩（P3 支持）
+  backup_source: 'external',
+  // 恢复模式（P1）：lite=拉回备份目录，手动恢复；advanced=系统全自动恢复线上（P4 支持）
+  restore_mode: 'lite',
 })
 
 const rules = {
@@ -100,6 +105,8 @@ watch(
         storage_ids: [],
         sync_mode: 'auto',
         schedule_time: '03:00',
+        backup_source: 'external',
+        restore_mode: 'lite',
       })
       if (props.website) {
         const existing = Array.isArray(props.website.backup_paths) ? props.website.backup_paths : []
@@ -134,6 +141,8 @@ watch(
           storage_ids: props.website.storage_ids || [],
           sync_mode: props.website.sync_mode || 'auto',
           schedule_time: hm,
+          backup_source: props.website.backup_source || 'external',
+          restore_mode: props.website.restore_mode || 'lite',
         })
       }
       loadServers()
@@ -176,6 +185,8 @@ const onSubmit = () => {
         sync_mode: form.sync_mode,
         // schedule 存 HH:MM，仅在 scheduled 模式下有意义
         schedule: form.sync_mode === 'scheduled' ? form.schedule_time : null,
+        backup_source: form.backup_source,
+        restore_mode: form.restore_mode,
       }
       const saved = isEdit.value
         ? await websitesApi.update(props.website.id, payload)
@@ -319,6 +330,52 @@ const onSubmit = () => {
         </div>
       </el-form-item>
 
+      <!-- 备份来源（P1：接口预留，自主压缩 P3 落地） -->
+      <el-form-item label="备份来源" prop="backup_source">
+        <div class="mode-row">
+          <el-radio-group v-model="form.backup_source">
+            <el-radio value="external">外部压缩备份</el-radio>
+            <el-radio value="self">
+              自主压缩备份
+              <span class="mode-tag mode-tag-pending">P3</span>
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <div class="mode-detail">
+          <span class="mode-hint">
+            <template v-if="form.backup_source === 'external'">
+              监控服务器上已有的备份产物（如面板/宝塔/脚本生成的压缩文件），发现新文件即上传。
+            </template>
+            <template v-else>
+              由本系统直接在服务器上完成网站目录与数据库压缩后再上传（后续版本支持）。
+            </template>
+          </span>
+        </div>
+      </el-form-item>
+
+      <!-- 恢复模式（P1：接口预留，高级恢复 P4 落地） -->
+      <el-form-item label="恢复模式" prop="restore_mode">
+        <div class="mode-row">
+          <el-radio-group v-model="form.restore_mode">
+            <el-radio value="lite">轻便恢复</el-radio>
+            <el-radio value="advanced">
+              高级恢复
+              <span class="mode-tag mode-tag-pending">P4</span>
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <div class="mode-detail">
+          <span class="mode-hint">
+            <template v-if="form.restore_mode === 'lite'">
+              远程拉取备份文件回到服务器备份目录，由管理员手动解压、导入数据库。
+            </template>
+            <template v-else>
+              系统全自主恢复：按绑定的网站根目录自动解压覆盖、自动导入数据库，无需人工干预（后续版本支持）。
+            </template>
+          </span>
+        </div>
+      </el-form-item>
+
       <el-form-item label="推送到" prop="storage_ids">
         <div style="width: 100%">
           <div v-if="mandatoryStorages.length" class="mandatory-notice">
@@ -426,6 +483,34 @@ const onSubmit = () => {
 .sched-hint {
   font-size: 12px;
   color: var(--bc-text-secondary);
+}
+
+/* --- 备份来源 / 恢复模式（P1） --- */
+.mode-row {
+  width: 100%;
+}
+.mode-detail {
+  margin-top: 8px;
+}
+.mode-hint {
+  font-size: 12px;
+  color: var(--bc-text-secondary);
+}
+.mode-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: middle;
+}
+.mode-tag-pending {
+  background: var(--bc-warning-bg, #fdf6ec);
+  border: 1px solid var(--bc-warning-border, #f5dab1);
+  color: var(--bc-warning);
 }
 
 /* --- 备份目录 repeater --- */

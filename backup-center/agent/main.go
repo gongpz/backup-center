@@ -450,6 +450,24 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Output:    output,
 		})
 
+	case "bind_root":
+		// 根目录绑定：校验/搜索密钥文件(.bc-bind-<token>)，回传网站根目录给 Center
+		output, err := performBindRoot(cmd)
+		if err != nil {
+			slog.Warn("根目录绑定失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Error:     err.Error(),
+			})
+			return
+		}
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "success",
+			Output:    output,
+		})
+
 	default:
 		slog.Warn("未知指令类型，忽略", "type", cmd.Type, "id", cmd.ID)
 		_ = c.CommandResult(&client.CommandResultRequest{
