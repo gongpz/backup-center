@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\BackupLogController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\NotificationSettingController;
 use App\Http\Controllers\Api\ResourcePoolController;
+use App\Http\Controllers\Api\RestoreController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\StorageController;
 use App\Http\Controllers\Api\SystemSettingController;
@@ -71,6 +72,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/backup-logs/{backupLog}/restore', [BackupLogController::class, 'restore']);
     Route::get('/backup-logs/{backupLog}/restore-status', [BackupLogController::class, 'restoreStatus']);
     Route::delete('/backup-logs/{backupLog}', [BackupLogController::class, 'destroy']);
+
+    // 数据恢复（P2：独立栏目，按网站+日期分组的整套恢复）
+    Route::get('/restore/websites', [RestoreController::class, 'websites']);
+    Route::get('/restore/backups', [RestoreController::class, 'backups']);
+    Route::post('/restore', [RestoreController::class, 'store']);
+    Route::get('/restore/status', [RestoreController::class, 'status']);
 
     // 存储（Rclone 配置）
     Route::apiResource('storages', StorageController::class);
