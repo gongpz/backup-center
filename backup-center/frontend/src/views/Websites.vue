@@ -157,6 +157,12 @@ const pathBasename = (p) => {
   return parts.length ? parts[parts.length - 1] : p
 }
 
+// 最近备份数据源：self 站点优先展示自主备份产物（recent_self_backups），为空时回落到外部备份记录
+const recentBackupsOf = (row) =>
+  row.backup_source === 'self' && row.recent_self_backups?.length
+    ? row.recent_self_backups
+    : row.recent_backups
+
 /**
  * 一条 backup_log 的综合上传结果：
  *   ok      = 所有 uploads 都 uploaded（或没配任何存储 → 只发现文件本身也算 ok）
@@ -275,15 +281,20 @@ const total = computed(() => meta.total)
             <div v-if="row.web_root" class="root-cell">
               <span class="chip chip-cyan mono" :title="`绑定于 ${fmtFull(row.root_bound_at)}`">{{ row.web_root }}</span>
             </div>
+            <span
+              v-else-if="row.backup_source === 'self'"
+              class="badge warn"
+              title="自主压缩需要网站根目录，请先通过操作列「绑定」设置"
+            >未绑定</span>
             <span v-else class="muted">未绑定</span>
           </template>
         </el-table-column>
 
         <el-table-column label="最近备份" min-width="230">
           <template #default="{ row }">
-            <div v-if="(row.backup_source === 'self' ? row.recent_self_backups : row.recent_backups)?.length" class="recent-backups">
+            <div v-if="recentBackupsOf(row)?.length" class="recent-backups">
               <div
-                v-for="(rb, idx) in (row.backup_source === 'self' ? row.recent_self_backups : row.recent_backups)"
+                v-for="(rb, idx) in recentBackupsOf(row)"
                 :key="idx"
                 class="rb-row"
               >
