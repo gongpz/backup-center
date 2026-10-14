@@ -565,6 +565,68 @@ html.dark .el-button--primary:focus-visible {
 /* 小屏下弹层不超出视口（EP 默认 50% 宽在窄屏会被挤压/溢出） */
 .el-dialog, .el-drawer, .el-message-box { max-width: calc(100vw - 48px); }
 
+/* ---------- 表格列分级隐藏（P0-6）----------
+   背景：Servers 8 列合计 1346px、Websites/Storages 9 列更宽，1440 视口就已横向滚动。
+
+   ⚠️ 为什么必须同时隐藏 <col>：EP 的 tableLayout 默认 "fixed"（table/defaults.mjs:188），
+   列宽由 h-helper.mjs 的 hColgroup 生成的每列 <col> 决定。只把 th/td 设 display:none，
+   <col> 仍在、table 宽度一分不减 → 表现为「文字没了但滚动条还在」，比现状更糟。
+   故每个断点需三步：<col> 隐藏 + 单元格隐藏 + 让表格宽度重算。
+
+   列序以各视图 <style> 首行注释为准（已核对当前代码）。状态列/操作列任何断点都不隐藏。 */
+
+/* 隐藏某表第 n 列（1-based）：<col> 与 th/td 同步隐藏，并解除固定宽度约束 */
+
+/* ≤1360px：隐藏次要信息列 */
+@media (max-width: 1360px) {
+  /* Servers 3 IP/系统、6 最后心跳 */
+  .servers-table col:nth-child(3), .servers-table col:nth-child(6),
+  .websites-table col:nth-child(4), .websites-table col:nth-child(7) { display: none; }
+  .servers-table th:nth-child(3), .servers-table td:nth-child(3),
+  .servers-table th:nth-child(6), .servers-table td:nth-child(6),
+  .websites-table th:nth-child(4), .websites-table td:nth-child(4),
+  .websites-table th:nth-child(7), .websites-table td:nth-child(7) { display: none; }
+  /* Storages 5 绑定网站 */
+  .storages-table col:nth-child(5) { display: none; }
+  .storages-table th:nth-child(5), .storages-table td:nth-child(5) { display: none; }
+}
+
+/* ≤1100px：再隐藏一批（状态列/操作列保留） */
+@media (max-width: 1100px) {
+  /* Servers 5 Agent版本 */
+  .servers-table col:nth-child(5) { display: none; }
+  .servers-table th:nth-child(5), .servers-table td:nth-child(5) { display: none; }
+  /* Websites 3 备份目录、6 备份计划 */
+  .websites-table col:nth-child(3), .websites-table col:nth-child(6) { display: none; }
+  .websites-table th:nth-child(3), .websites-table td:nth-child(3),
+  .websites-table th:nth-child(6), .websites-table td:nth-child(6) { display: none; }
+  /* Storages 2 类型、3 强制备份 */
+  .storages-table col:nth-child(2), .storages-table col:nth-child(3) { display: none; }
+  .storages-table th:nth-child(2), .storages-table td:nth-child(2),
+  .storages-table th:nth-child(3), .storages-table td:nth-child(3) { display: none; }
+  /* BackupLogs 6 用时、9 云上传 */
+  .backup-logs-table col:nth-child(6), .backup-logs-table col:nth-child(9) { display: none; }
+  .backup-logs-table th:nth-child(6), .backup-logs-table td:nth-child(6),
+  .backup-logs-table th:nth-child(9), .backup-logs-table td:nth-child(9) { display: none; }
+  /* ResourceLibrary 2 备注 */
+  .resource-table col:nth-child(2) { display: none; }
+  .resource-table th:nth-child(2), .resource-table td:nth-child(2) { display: none; }
+}
+
+/* 隐藏列后让表格宽度重算：fixed 布局下必须显式交回 auto，否则 colgroup 宽度仍生效 */
+@media (max-width: 1360px) {
+  .servers-table .el-table__header-wrapper table,
+  .servers-table .el-table__body-wrapper table,
+  .websites-table .el-table__header-wrapper table,
+  .websites-table .el-table__body-wrapper table,
+  .storages-table .el-table__header-wrapper table,
+  .storages-table .el-table__body-wrapper table,
+  .backup-logs-table .el-table__header-wrapper table,
+  .backup-logs-table .el-table__body-wrapper table,
+  .resource-table .el-table__header-wrapper table,
+  .resource-table .el-table__body-wrapper table { width: auto !important; }
+}
+
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
