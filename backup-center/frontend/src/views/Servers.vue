@@ -134,7 +134,9 @@ const diskPct = (d) => {
 }
 const diskColor = (d) => {
   const p = diskPct(d)
-  if (p >= 90) return 'var(--bc-danger)'
+  // 阈值与 title 的「⚠ 空间不足」提示统一为 85%：
+  // 原为 90/75，会出现「有 ⚠ 警告文字但进度条仍是黄色」的割裂组合。
+  if (p >= 85) return 'var(--bc-danger)'
   if (p >= 75) return 'var(--bc-warning)'
   return 'var(--bc-success)'
 }

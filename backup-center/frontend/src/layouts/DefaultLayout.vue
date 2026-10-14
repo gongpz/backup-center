@@ -351,7 +351,10 @@ const handleLogout = () => {
 .page-title p {
   margin: 2px 0 0;
   font-size: 11px;
-  color: var(--bc-text-placeholder);
+  /* 保持 secondary 而非 placeholder：placeholder(#8a94a0) 白底仅 3.08:1，
+     低于 AA 4.5:1，用在 11px 小字上不达标；secondary(#66717f) 为 5.6:1。
+     层级降级已由字号(15→13→11px)承担，无需再牺牲对比度。 */
+  color: var(--bc-text-secondary);
 }
 
 .header-right {

@@ -550,7 +550,7 @@ const fmtDuration = (sec) => {
   white-space: nowrap;
 }
 .chip-blue   { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
-.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-bg); }
+.chip-purple { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
 
 .summary {
   display: flex;
