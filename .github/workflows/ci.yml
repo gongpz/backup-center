@@ -88,6 +88,9 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate --force
+          # 兜底：确保 Laravel 运行时目录存在（正常由 storage/**/.gitignore 保证存在，
+          # 这里再 mkdir 一次，防止任何边界情况导致 Blade 编译报 "Please provide a valid cache path"）
+          mkdir -p storage/framework/views storage/framework/cache/data storage/framework/sessions storage/logs
 
       # MySQL 服务容器就绪前先探活。冷启动（首次拉 mysql:8.0 镜像）可能超过 60s，
       # 之前就是竞态导致「库没起好就跑测试」而失败；这里放宽到 ~180s 且没就绪就直接
