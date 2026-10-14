@@ -102,7 +102,10 @@ const nextId = (key) => db.seq[key]++
 const findById = (list, id) => list.find((x) => String(x.id) === String(id))
 
 const db = {
-  seq: { server: 7, website: 9, storage: 5, log: 15833, pool: 2, cmd: 100 },
+  // log 序号必须大于静态数据最大 id（15843）：P2 起静态记录直接写死 15823–15843，
+  // 早期 seq=15833 会让预置自主备份日志与静态记录撞号（db.logs 出现重复 id，
+  // 备份记录表 row-key="id" 行状态串扰、findById 解析到错误条目）。
+  seq: { server: 7, website: 9, storage: 5, log: 15844, pool: 2, cmd: 100 },
   latestAgentVersion: '0.14.0',
 
   user: { id: 1, name: '张管理员', username: 'admin', email: 'admin@example.com', role: 'admin' },
@@ -120,7 +123,7 @@ const db = {
   websites: [
     { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站（自主压缩演示）', storage_ids: [1, 2], backup_source: 'self', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'main_site', db_user: 'root', db_password_set: true },
     { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: '/var/www/shop', root_bound_at: hours(48), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'shop_main', db_user: 'root', db_password_set: true },
+    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: '/var/www/eshop', root_bound_at: hours(48), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'shop_main', db_user: 'root', db_password_set: true },
     { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
     { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
@@ -323,6 +326,12 @@ const serverRef = (id) => {
   return s ? { name: s.name, connect_type: s.connect_type } : null
 }
 
+// 时间戳 YYYYMMDD-HHMMSS：自主备份产物文件名与高级恢复预备份路径共用
+const tsStamp = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
 /* ---------- 数据恢复（P2）辅助 ---------- */
 // range → 天数，与 RestoreController::backups 的映射一致
 const RANGE_DAYS = { month: 30, week: 7, '3day': 3, '1day': 1 }
@@ -376,8 +385,9 @@ const buildRecentSelfBackups = (website) => {
   const out = []
   const web = pick(/^.*-web-.*\.tar\.gz$/)
   if (web) out.push({ label: '网站目录', path: website.web_root || '（未绑定根目录）', log: shape(web) })
-  const db = pick(/^.*-db-.*\.sql\.gz$/)
-  if (db) out.push({ label: '数据库', path: '（数据库）', log: shape(db) })
+  // 注意：勿命名 db —— 会遮蔽模块级 db 并让上面的 db.logs 访问踩 TDZ
+  const dbLog = pick(/^.*-db-.*\.sql\.gz$/)
+  if (dbLog) out.push({ label: '数据库', path: '（数据库）', log: shape(dbLog) })
   return out
 }
 
@@ -390,14 +400,17 @@ const scheduleRestore = (cmd) => {
   // 但外部扫描到的可能是 mysqldump 直接产出的 <db>_<ts>.sql.gz（不含 -db-），
   // 因此不能用 -db- 中缀判断，否则数据库文件会被当成网站文件走「解压覆盖」分支。
   const isDb = /\.sql\.gz$/i.test(cmd.params.filename)
+  // 预备份路径与真实 Agent 一致：<目标>.bak-<ts>（同一命令内固定一个 stamp）
+  const bakTs = tsStamp()
+  const bakPath = (ext) => `${cmd.params.local_dir}.bak-${bakTs}${ext}`
   const finish = () => {
     if (cmd.status !== 'pending' && cmd.status !== 'dispatched') return
     cmd.status = 'success'
     cmd.completed_at = new Date().toISOString()
     cmd.output = advanced
       ? (isDb
-        ? `高级恢复完成：数据库已重建导入（预备份 ${cmd.params.local_dir}.bak-*.sql）`
-        : `高级恢复完成：网站目录已覆盖（预备份 ${cmd.params.local_dir}.bak-*.tar.gz）`)
+        ? `高级恢复完成：数据库已重建导入（预备份 ${bakPath('.sql')}）`
+        : `高级恢复完成：网站目录已覆盖（预备份 ${bakPath('.tar.gz')}）`)
       : `已恢复 ${cmd.params.filename} → ${cmd.params.local_dir}`
   }
   setTimeout(() => { if (cmd.status === 'pending') cmd.status = 'dispatched' }, 6000)
@@ -407,8 +420,8 @@ const scheduleRestore = (cmd) => {
   }
   // advanced：模拟 Agent 的多步执行（预备份 → 解压/导库），进度经 output 逐步透出
   const steps = isDb
-    ? ['[预备份] 数据库 → ' + cmd.params.local_dir + '.bak-*.sql', '[导入] 解压数据库归档…', '[导入] 重建并导入数据库…']
-    : ['[预备份] 网站目录 → ' + cmd.params.local_dir + '.bak-*.tar.gz', '[解压] 正在覆盖网站根目录…']
+    ? [`[预备份] 数据库 → ${bakPath('.sql')}`, '[导入] 解压数据库归档…', '[导入] 重建并导入数据库…']
+    : [`[预备份] 网站目录 → ${bakPath('.tar.gz')}`, '[解压] 正在覆盖网站根目录…']
   steps.forEach((s, i) => setTimeout(() => { if (cmd.status !== 'success') cmd.output = s }, 8000 + i * 5000))
   setTimeout(finish, 8000 + steps.length * 5000)
 }
@@ -607,13 +620,15 @@ const routes = [
   ['post', /^\/websites\/(\d+)\/self-backup$/, (m) => {
     const w = findById(db.websites, m[1])
     if (!w) return { __error: { status: 404, message: '网站不存在' } }
+    // 与后端 selfBackupNow 同序校验：Agent 模式 + self 来源
+    if (w.server?.connect_type !== 'agent') {
+      return { __error: { status: 422, message: '该网站所属服务器不是 Agent 模式，无法自主备份' } }
+    }
     if (w.backup_source !== 'self') {
-      return { __error: { status: 422, message: '该网站不是「自主压缩」来源，无法立即自主备份' } }
+      return { __error: { status: 422, message: '该网站未启用自主压缩备份（backup_source=self）' } }
     }
     const safe = String(w.name || 'site').replace(/[^A-Za-z0-9._-]/g, '_')
-    const now = new Date()
-    const p2 = (n) => String(n).padStart(2, '0')
-    const ts = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}${p2(now.getSeconds())}`
+    const ts = tsStamp()
     const at = new Date().toISOString()
     const cmdId = nextId('cmd')
 
@@ -630,6 +645,10 @@ const routes = [
         full_path: fullPath,
         size,
         status: 'success',
+        // backup_at/synced_at 取点击时刻：mkLog 的 minutesAgo=0 只能取到模块加载时间
+        backup_at: at,
+        synced_at: at,
+        created_at: at,
         upload_status: 'uploaded',
         uploads: [{
           id: id * 10 + 1,
@@ -648,7 +667,7 @@ const routes = [
     addSelfLog(`${safe}-web-${ts}.tar.gz`, `${w.web_root || '/www'}/backup/${safe}-web-${ts}.tar.gz`, 1.5 * GB)
     addSelfLog(`${safe}-db-${ts}.sql.gz`, `${w.web_root || '/www'}/backup/${safe}-db-${ts}.sql.gz`, 320 * MB)
 
-    return { message: '已下发自主备份指令，最长 60 秒内 Agent 会执行', command_id: cmdId }
+    return { message: '已下发自主备份指令，最长 60 秒后 Agent 会执行（打包网站目录 + 导出数据库并上传）', command_id: cmdId }
   }],
   ['post', /^\/system\/backup$/, () => {
     const filename = `bc-system-${new Date(NOW).toISOString().slice(0, 10)}.tar.gz`
