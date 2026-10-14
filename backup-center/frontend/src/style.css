@@ -684,6 +684,17 @@ html.dark .login-card {
 .storages-table td.el-table__cell:last-child > .cell,
 .storages-table th.el-table__cell:last-child > .cell { padding-left: 12px; padding-right: 12px; }
 
+/* 90px 窄操作列（BackupLogs「删除」/ ResourceLibrary「删除」）：
+   上面的 8px padding 会让内容需 109px > 可用 66px，导致按钮被 .cell 的 overflow 裁掉。
+   这里只收窄横向 padding（保住 28px 点击高度不变），并压低字号让「删除」两字放得下。
+   实测：可用 90-8*2=74px ≥ 内容 62px。 */
+.backup-logs-table td.el-table__cell:last-child > .cell,
+.backup-logs-table th.el-table__cell:last-child > .cell,
+.resource-table td.el-table__cell:last-child > .cell,
+.resource-table th.el-table__cell:last-child > .cell { padding-left: 4px; padding-right: 4px; }
+.backup-logs-table td.el-table__cell:last-child .el-button,
+.resource-table td.el-table__cell:last-child .el-button { padding: 4px 6px; font-size: 12px; }
+
 /* ---------- P1-10 §5.1 加载态：遮罩精修 ----------
    不用骨架屏：行高由 padding 决定，首屏行数未知，骨架屏会因行数变化产生跳动。
    遮罩半透明到 .62，切 Dashboard 时间范围时数据仍可读（规格 §5.1.2）。
