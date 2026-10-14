@@ -354,6 +354,27 @@ code, pre, .mono, .selectable, .cell-file, .token-box code, .cmd-box pre {
   cursor: text; user-select: text; -webkit-user-select: text;
 }
 
+/* ---------- P2-5 运维高频复制区（规格 §4.6）----------
+   全局 user-select:none 是为避免 I-beam 光标的取舍，但运维复制
+   IP / 路径 / 版本号 / 报错原文频率极高，这些值在表格和详情里
+   却往往不在原白名单内（多为普通 span / td），故显式放开。
+   ⚠️ 与上面那条基础白名单的取舍：这里只补 .cell-file 以外的值类容器，
+   不重复声明已覆盖的选择器（.cell-file / .bs-path / .kf-name 自身
+   已带 .mono，由上面那条兜住）。 */
+/* Help.vue 参数表的取值列：值可能是路径/端口/开关，直接可复制 */
+.kv-table .v { cursor: text; user-select: text; -webkit-user-select: text; }
+/* Footer 联系方式（邮箱 / IM / 电话） */
+.contact-value { cursor: text; user-select: text; -webkit-user-select: text; }
+/* 站点绑定的网站根目录 / 密钥文件名（WebsiteBindDialog） */
+.bs-path, .kf-name { cursor: text; user-select: text; -webkit-user-select: text; }
+/* BackupLogs 报错原文：超 20 字且是排查的唯一线索 */
+.err-msg { cursor: text; user-select: text; -webkit-user-select: text; }
+/* Servers 资源占用数值（CPU/内存/磁盘百分比） */
+.u-val { cursor: text; user-select: text; -webkit-user-select: text; }
+/* Websites 备份目录 / Servers Agent 版本：整格可复制，
+   便于直接框选整列再粘贴到工单 */
+.paths-cell, .ver-cell { cursor: text; user-select: text; -webkit-user-select: text; }
+
 *, *::before, *::after { box-sizing: border-box; }
 a { color: inherit; text-decoration: none; }
 
@@ -779,11 +800,7 @@ html.dark .login-card {
 }
 /* 「执行中」是瞬时状态，需要动画冗余；用呼吸而非闪烁，避免干扰 */
 .badge.run::before { animation: bc-pulse 1.6s var(--bc-ease) infinite; }
-/* reduced-motion 兜底：呼吸退化为静止的点。文件末尾的全局兜底块已把
-   animation-duration 压到 .01ms，这里额外保证动画被彻底移除并给出静态不透明度。 */
-@media (prefers-reduced-motion: reduce) {
-  .badge.run::before { animation: none; opacity: .85; }
-}
+/* 呼吸动效在 prefers-reduced-motion 下的兜底已合并到文件末尾的全局块，不另起同名块 */
 
 /* ---------- P1-8 帮助中心可扫读性（规格 §1.2-D）----------
    Help.vue 是 745 行长文档：正文行宽在 2560px 下一行能放约 190 个汉字，
@@ -873,11 +890,26 @@ body, .layout-wrap, .el-header, .el-aside, .el-main, .el-dialog, .el-drawer {
               color .25s var(--bc-ease);
 }
 
-/* ---------- 降低动效偏好 ---------- */
+/* ---------- 降低动效偏好（全局唯一块，P2-7 在此增补）---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+  /* 1) 关闭平滑滚动：锚点跳转/滚动定位改为瞬时到位 */
+  html { scroll-behavior: auto !important; }
+  /* 2) 关闭卡片入场位移：bc-rise 是 translateY(14px) 上浮，
+        即使时长被压到 .01ms，个别浏览器仍会闪一帧位移，故直接移除 transform。
+        注：transform: none 会一并压掉 .stat-card:hover 的 translateY(-1px) 微反馈，
+        这正是 reduced-motion 用户想要的（无任何位移动画），非副作用。 */
+  .stat-card, .storage-pool, .pool-grid .pool-card,
+  .chart-card, .table-card, .restore-group {
+    animation: none !important;
+    transform: none !important;
+  }
+  /* 3) 关闭旋转/持续动画：徽标呼吸退化为静止的点，
+        Servers.vue 的 Agent 升级 spinner 停止旋转并给出静态对位。 */
+  .badge.run::before { animation: none !important; opacity: .85; }
+  .upg-spin { animation: none !important; }
 }
