@@ -9,6 +9,30 @@
    说明：保留 v1 全部变量名，组件零改动即可生效
    ============================================================ */
 
+/* ============================================================
+   自托管 Didone 数字字体 —— 为 --bc-font-num 提供与平台无关的衬线数字
+   问题：macOS 有 Didot、Windows 有 Georgia，Linux 会退化到系统无衬线，
+         字号/字重再怎么调都丢了"衬线衬线体"的设计意图。
+   方案：不引 CDN（ops 机器可能在隔离网络），自托管 Playfair Display SemiBold，
+         用 fontTools 子集化为「数字 + 单位字母」→ 约 5KB 而非数百 KB。
+   约束：unicode-range 严格限定，中文及其余字符完全不命中该字体，
+         自然回退到后续字体链；整条 fallback 链原样保留。
+   源文件：Playfair Display SemiBold（SIL Open Font License 1.1）
+   许可证：src/assets/fonts/OFL.txt
+   子集字符：0-9 空格 . , - + % B K M G T
+   ============================================================ */
+@font-face {
+  font-family: 'Playfair Display Num';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/playfair-display-nums-600.woff2') format('woff2');
+  /* U+0020 空格  U+0025 %  U+002B +  U+002C ,  U+002D -  U+002E .
+     U+0030-0039 0-9  U+0042 B  U+0047 G  U+004B K  U+004D M  U+0054 T */
+  unicode-range: U+0020, U+0025, U+002B, U+002C, U+002D, U+002E, U+0030-0039,
+                 U+0042, U+0047, U+004B, U+004D, U+0054;
+}
+
 :root {
   /* ---------- 背景：明度递进 ---------- */
   --bc-bg-page:      #f4f6f8;
@@ -111,9 +135,9 @@
   --bc-font-sans: 'Inter var', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI',
                   Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
                   'Helvetica Neue', Arial, sans-serif;
-  --bc-font-num:  'Didot', 'Bodoni MT', 'Bodoni 72', 'Playfair Display',
-                  'Bodoni Moda', 'Noto Serif Display', Georgia,
-                  'Times New Roman', var(--bc-font-sans);
+  --bc-font-num:  'Playfair Display Num', 'Didot', 'Bodoni MT', 'Bodoni 72',
+                  'Playfair Display', 'Bodoni Moda', 'Noto Serif Display',
+                  Georgia, 'Times New Roman', var(--bc-font-sans);
   --bc-font-mono: 'JetBrains Mono', 'SFMono-Regular', 'SF Mono', Menlo, Consolas,
                   'Liberation Mono', ui-monospace, monospace;
 
