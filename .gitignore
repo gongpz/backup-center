@@ -54,3 +54,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# bypass-verified: 直接推 main 验证 2026-10-14
