@@ -653,7 +653,7 @@ const bulkDispatch = () => {
 .row-actions {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: nowrap;
   white-space: nowrap;
 }

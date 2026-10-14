@@ -242,7 +242,7 @@ const fmtDuration = (sec) => {
     </div>
 
     <!-- KPI 第二排 -->
-    <div class="stat-grid">
+    <div class="stat-grid stat-grid--sub">
       <div v-for="s in statsRow2" :key="s.label" class="stat-card bc-card">
         <div class="stat-head">
           <span class="stat-label">{{ s.label }}</span>
@@ -427,6 +427,7 @@ const fmtDuration = (sec) => {
   transition: all 0.15s;
   font-weight: 500;
   min-width: 36px;
+  min-height: 28px;
 }
 .range-btn:hover { color: var(--bc-text-primary); }
 .range-btn.active {
@@ -439,12 +440,9 @@ const fmtDuration = (sec) => {
 /* ---------- KPI 卡片 ---------- */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   margin-bottom: 16px;
-}
-@media (max-width: 1180px) {
-  .stat-grid { grid-template-columns: repeat(2, 1fr); }
 }
 .stat-card { padding: 20px; }
 .stat-head {
@@ -477,12 +475,18 @@ const fmtDuration = (sec) => {
 .tone-pink    { background: rgba(168, 86, 107, .14); color: var(--bc-chart-6); }
 
 .stat-value {
+  font-family: var(--bc-font-num);
   font-size: 28px;
   font-weight: 600;
   color: var(--bc-text-primary);
-  line-height: 1.1;
+  line-height: 1.15;
+  letter-spacing: -.02em;
   margin-bottom: 8px;
 }
+/* 第二排「容量 / 次数」降级：让第一排的数量/成败成为唯一视觉焦点 */
+.stat-grid--sub .stat-value { font-size: 24px; line-height: 1.2; }
+.stat-grid--sub .stat-card { padding: 16px 20px; }
+.stat-grid--sub .stat-head { margin-bottom: 10px; }
 .stat-change {
   display: inline-flex;
   align-items: center;
@@ -493,7 +497,7 @@ const fmtDuration = (sec) => {
 .stat-change.up   { color: var(--bc-success); }
 .stat-change.down { color: var(--bc-danger); }
 .change-hint {
-  color: var(--bc-text-placeholder);
+  color: var(--bc-text-secondary);
   font-weight: 400;
   margin-left: 4px;
 }
@@ -503,11 +507,11 @@ const fmtDuration = (sec) => {
 /* ---------- 图表区 ---------- */
 .chart-grid {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 16px;
   margin-bottom: 20px;
 }
-@media (max-width: 1180px) {
+@media (max-width: 1279px) {
   .chart-grid { grid-template-columns: 1fr; }
 }
 .chart-card { padding: 20px; }

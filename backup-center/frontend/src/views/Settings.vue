@@ -72,7 +72,10 @@ const activeTab = ref('system')
 .page-h { margin: 0; font-size: 20px; font-weight: 600; color: var(--bc-text-primary); }
 .page-sub { margin: 4px 0 0; font-size: 12px; color: var(--bc-text-secondary); }
 
-.settings-shell { padding: 0; overflow: hidden; }
+/* overflow 必须用 clip 而非 hidden：hidden 会让本容器成为滚动容器，
+   内部 tab 栏的 position:sticky 就会以它为参照而永不吸顶。
+   clip 同样按圆角裁切内容，但不建立滚动容器，sticky 仍锚定 el-main。 */
+.settings-shell { padding: 0; overflow: clip; }
 .tab-lbl { display: inline-flex; align-items: center; gap: 8px; }
 .tab-lbl .el-icon { font-size: 15px; }
 
@@ -80,7 +83,12 @@ const activeTab = ref('system')
   margin: 0;
   padding: 0 20px;
   border-bottom: 1px solid var(--bc-border-light);
-  background: linear-gradient(180deg, rgba(15, 110, 140, .04) 0%, transparent 100%);
+  /* 吸顶：top:0 对齐滚动容器 el-main（.main）的上沿。
+     顶栏 el-header 是 flex 兄弟节点、不覆盖在主区之上，故无需 60px 偏移。 */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bc-bg-card);
 }
 :deep(.el-tabs__nav-wrap::after) { display: none; }
 :deep(.el-tabs__item) {
@@ -101,5 +109,5 @@ const activeTab = ref('system')
   background: var(--bc-primary);
   height: 3px;
 }
-:deep(.el-tabs__content) { padding: 24px 28px; background: var(--bc-bg-page); min-height: 600px; }
+:deep(.el-tabs__content) { padding: 24px 28px; background: var(--bc-bg-page); min-height: 420px; }
 </style>
