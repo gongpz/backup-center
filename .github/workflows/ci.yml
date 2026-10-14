@@ -109,23 +109,23 @@ jobs:
 
       # CI 专用配置（phpunit.ci.xml）把测试库指向 MySQL；其余与原 phpunit.xml 一致。
       # 不直接用 composer test（它固定跑默认 sqlite 配置），这里显式指定配置。
-      # 失败时把 phpunit 摘要转成 GitHub 注释，便于在拿不到日志时也能定位到具体报错。
       - name: 运行测试
         working-directory: backup-center/backend
         run: |
           set +e
-          vendor/bin/phpunit --configuration phpunit.ci.xml --no-coverage 2>&1 | tee phpunit.out
+          # 不用管道，直接重定向到文件 —— 确保 $? 就是 phpunit 的真实退出码。
+          # （曾用 `| tee` + `code=$?`，在 pipefail 未生效时 $? 会变成 tee 的 0，
+          #   把失败吞掉、导致门禁假绿；这个坑已修掉。）
+          vendor/bin/phpunit --configuration phpunit.ci.xml --no-coverage > phpunit.out 2>&1
           code=$?
+          # 无论成败都输出 phpunit 最终汇总，作为真实结果的长期凭证
+          tail -3 phpunit.out | while IFS= read -r line; do echo "::notice::${line//%/%%}"; done
           if [ "$code" -ne 0 ]; then
-            echo "::group::phpunit 失败摘要"
-            grep -nE "Fatal error|Call to undefined|Class .* not found|not found|SQLSTATE|Exception|✘|FAILURES!|ERRORS!|Failed asserting|^[0-9]+\) " phpunit.out | head -40 | while IFS= read -r line; do
+            echo "::group::phpunit 失败定位"
+            grep -nE "✘|Failed asserting|^[0-9]+\) |Exception|Error:|SQLSTATE|not found|Fatal|Call to undefined" phpunit.out | head -40 | while IFS= read -r line; do
               echo "::error::${line//%/%%}"
             done
             echo "::endgroup::"
-          else
-            # 通过时也把测试摘要以注释输出，作为「门禁真的在跑测试」的长期证据
-            summary=$(grep -E "^OK \(|^Tests: " phpunit.out | tail -1)
-            [ -n "$summary" ] && echo "::notice::phpunit $summary"
           fi
           exit "$code"
 
