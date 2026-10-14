@@ -84,6 +84,14 @@
   /* ---------- Focus ring ---------- */
   --bc-ring:        0 0 0 3px rgba(15, 110, 140, .16);
   --bc-ring-danger: 0 0 0 3px rgba(192, 53, 59, .16);
+  /* P0-2 · WCAG 2.2 SC 1.4.11：焦点指示需 ≥3:1 对比度。
+     上面的 rgba 仅 ~1.1:1（半透明叠白底几乎不可见），故另设不透明实色版。
+     浅色基于主色 #0f6e8c → 对白底 5.79:1 */
+  --bc-ring-a11y:        0 0 0 3px #0f6e8c;
+  --bc-ring-a11y-danger: 0 0 0 3px #c0353b;
+  /* 内缩版：供 overflow:hidden 容器内的元素使用，避免焦点环被父级裁掉 */
+  --bc-ring-a11y-inset:        inset 0 0 0 3px #0f6e8c;
+  --bc-ring-a11y-inset-danger: inset 0 0 0 3px #c0353b;
 
   /* ---------- 毛玻璃（可选）---------- */
   --bc-glass-bg:   rgba(255, 255, 255, .72);
@@ -119,6 +127,10 @@
   --bc-space-1: 4px;  --bc-space-2: 8px;   --bc-space-3: 12px;
   --bc-space-4: 16px; --bc-space-5: 20px;  --bc-space-6: 24px;
   --bc-space-8: 32px; --bc-space-10: 40px; --bc-space-12: 48px;
+
+  /* ---------- 内容最大宽度（超宽屏不铺满）---------- */
+  --bc-container:     1680px;
+  --bc-container-doc: 1120px;
 
   /* ---------- 图表 ---------- */
   --bc-chart-1: #0f6e8c; --bc-chart-2: #4c86c6; --bc-chart-3: #6e7bc8;
@@ -252,6 +264,11 @@ html.dark {
 
   --bc-ring:        0 0 0 3px rgba(51, 180, 208, .28);
   --bc-ring-danger: 0 0 0 3px rgba(231, 106, 110, .28);
+  /* P0-2 深色版：基于深色主色 #33b4d0 → 对深色卡底(#151a21) 7.14:1 */
+  --bc-ring-a11y:        0 0 0 3px #33b4d0;
+  --bc-ring-a11y-danger: 0 0 0 3px #e76a6e;
+  --bc-ring-a11y-inset:        inset 0 0 0 3px #33b4d0;
+  --bc-ring-a11y-inset-danger: inset 0 0 0 3px #e76a6e;
 
   --bc-glass-bg: rgba(16, 21, 27, .72);
 
@@ -336,8 +353,10 @@ code, pre, .mono, .selectable, .cell-file, .token-box code, .cmd-box pre {
 *, *::before, *::after { box-sizing: border-box; }
 a { color: inherit; text-decoration: none; }
 
-/* 数字统一等宽（防跳动）—— 运维界面的硬需求 */
-.mono, .stat-value, .summary-val, td.mono, .kv .v {
+/* 数字统一等宽（防跳动）—— 运维界面的硬需求
+   P0-8：静默刷新时数字宽度抖动会让表格列宽跳动，故覆盖表格单元与常用数值/文本容器 */
+.mono, .stat-value, .summary-val, td.mono, .kv .v,
+.el-table td, .el-table th, .u-val, .strong, .muted {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
@@ -393,7 +412,32 @@ a { color: inherit; text-decoration: none; }
   background-color: var(--bc-primary-active);
   border-color: var(--bc-primary-active);
 }
-.el-button:focus-visible { outline: none; box-shadow: var(--bc-ring); }
+/* ---------- P0-2 焦点可见性（WCAG 2.2 SC 1.4.11）---------- */
+/* outline 用 transparent 占位：既能通过 Windows 高对比模式/forced-colors 的
+   「必须有 outline」检查，又不会在常规模式下画出多余描边；可见性由 box-shadow 承担。 */
+:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: var(--bc-ring-a11y);
+}
+/* EP 组件自带 focus-visible 特异性更高，需显式升级（须在下方覆盖规则之前） */
+.el-button:focus-visible { outline: 2px solid transparent; box-shadow: var(--bc-ring-a11y); }
+/* 危险操作（删除/停止/清理）用 danger 版焦点环。
+   放在 .el-button:focus-visible 之后，否则同特异性下会被后者覆盖。 */
+.el-button--danger:focus-visible {
+  box-shadow: var(--bc-ring-a11y-danger);
+}
+/* 被 overflow:hidden 裁剪的容器：焦点环改为内缩，保证完整可见。
+   放在最后，确保在容器内优先于上面的外扩环。 */
+.table-card :focus-visible,
+.settings-shell :focus-visible,
+.storage-pool :focus-visible {
+  box-shadow: var(--bc-ring-a11y-inset);
+}
+.table-card .el-button--danger:focus-visible,
+.settings-shell .el-button--danger:focus-visible,
+.storage-pool .el-button--danger:focus-visible {
+  box-shadow: var(--bc-ring-a11y-inset-danger);
+}
 .el-button.is-disabled, .el-button.is-disabled:hover { cursor: not-allowed; }
 
 /* ---------- 表格 ---------- */
@@ -417,7 +461,14 @@ a { color: inherit; text-decoration: none; }
   background: var(--bc-bg-inset);
   padding: 11px 0;
 }
-.el-table td.el-table__cell { padding: 13px 0; color: var(--bc-text-regular); }
+.el-table td.el-table__cell { padding: 13px 0; color: var(--bc-text-regular); vertical-align: top; }
+/* P0-3 密度：EP 自带 .cell{padding:0 12px;line-height:23px} 导致行高 49px/表头 45px，
+   视觉密度虚高。改用 1.5 倍行高 + 16px 左右留白（首列 20px），行高约 46px、表头约 39px。 */
+.el-table .cell { padding-left: 16px; padding-right: 16px; line-height: 1.5; }
+.el-table tr > td:first-child > .cell,
+.el-table tr > th:first-child > .cell { padding-left: 20px; }
+.el-table tr > td:last-child > .cell,
+.el-table tr > th:last-child > .cell { padding-right: 20px; }
 .el-table .el-table__cell { border-bottom-color: var(--bc-border-hair); }
 /* 固定列分隔换成 hairline */
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
@@ -492,6 +543,27 @@ html.dark .el-button--primary:focus-visible {
   border-color: var(--bc-primary-hover);
   color: var(--bc-on-accent);
 }
+
+/* ============================================================
+   P0-4 容器宽度上限 / P0-5 响应式基础
+   断点取值 1280 / 1024 / 768，与既有 .vue 内的 900 / 1080 / 1180 均不重合，
+   避免与 Footer、settings、Restore 的局部断点互相打架。
+   ============================================================ */
+/* 2560px 宽屏上内容铺满一行行长难以阅读：限制正文宽度并居中 */
+.el-main > * {
+  max-width: var(--bc-container);
+  margin-inline: auto;
+}
+/* .main 是 DefaultLayout 的 scoped 样式 `.main[data-v-*]`（特异性 0,2,0），
+   且其 CSS 随路由 chunk 异步加载、晚于本文件，源序在后者。
+   故这里用 .layout .el-main.main（0,3,0）确保断点内能稳定覆盖 padding。 */
+.layout .el-main.main { padding: 24px; }
+@media (max-width: 1280px) { .layout .el-main.main { padding: 20px; } }
+@media (max-width: 1024px) { .layout .el-main.main { padding: 16px; } }
+@media (max-width: 768px)  { .layout .el-main.main { padding: 12px; } }
+
+/* 小屏下弹层不超出视口（EP 默认 50% 宽在窄屏会被挤压/溢出） */
+.el-dialog, .el-drawer, .el-message-box { max-width: calc(100vw - 48px); }
 
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
