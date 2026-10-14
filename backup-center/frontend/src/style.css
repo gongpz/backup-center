@@ -20,6 +20,8 @@
   --bc-bg-inset:     #f7f9fa;
   --bc-bg-elevated:  #ffffff;
   --bc-bg-overlay:   rgba(16, 24, 40, .32);
+  /* P1-10 §5.1 loading 遮罩：半透明到能读出底层数据（规格 §5.1.2） */
+  --bc-loading-mask: rgba(244, 246, 248, .62);
 
   /* ---------- 边框：半透明四档 ---------- */
   --bc-border:        rgba(16, 24, 40, .10);
@@ -215,6 +217,8 @@ html.dark {
   --bc-bg-inset:     #11161c;
   --bc-bg-elevated:  #1b212a;
   --bc-bg-overlay:   rgba(0, 0, 0, .55);
+  /* 深色下若沿用浅色遮罩会整片发白，故单独给一层深色半透明 */
+  --bc-loading-mask: rgba(13, 17, 23, .62);
 
   --bc-border:        rgba(255, 255, 255, .12);
   --bc-border-light:  rgba(255, 255, 255, .08);
@@ -653,6 +657,153 @@ html.dark .login-card {
   background: var(--bc-bg-elevated);
   border-color: var(--bc-border-light);
 }
+
+/* ============================================================
+   P1 · 表格操作列点击区 / 状态反馈 / 徽标 / 帮助中心
+   ============================================================ */
+
+/* ---------- P1-1 操作列 link 按钮点击区（WCAG 2.2 SC 2.5.8 ≥24×24）----------
+   EP 的 .el-button.is-link 是 height:auto + padding:2px，实测约 23px 高，低于 24px。
+   min-height 28px 达 AA（桌面鼠标操作为主，不追 44px，见规格 §4.2）。
+
+   ⚠️ 横向 padding 8px 会让每个按钮宽 +12px，需核对各表操作列是否撑破。
+   实测（fixed="right" 列在 EP 里独立成表，单元格同时是首/末列，
+   故左右 padding 各 20px = 40px，可用宽 = 列宽 - 40）：
+     Servers  360 - 40 = 320 可用；4 按钮 ×63px + 3×4px gap  = 264 → 余 56px ✅
+     Websites 260 - 40 = 220 可用；3 按钮 ×63px + 2×6px gap  = 201 → 余 19px ✅
+     Storages 290 - 40 = 250 可用；4 按钮 ×63px + 3×12px 边距 = 288 → 超 38px ❌
+   单按钮宽 63px = 8+8 padding + 13 icon + 6 icon-text 间距 + 26 双汉字 + 2 border。
+
+   Storages 的操作列没有 .row-actions 包裹（按钮是 .cell 的直接子元素），
+   仍吃 EP 默认的 `.el-button + .el-button { margin-left: 12px }`，
+   而 Servers/Websites 的 .row-actions 已把它归零、只用 flex gap。
+   故这里统一归零相邻 link 按钮的 margin，让 8px padding 自己提供 16px 视觉间距，
+   并把 Storages 操作列的单元格横向 padding 收到 12px → 可用 266px，需 252px，余 14px ✅ */
+.el-table td .el-button.is-link { min-height: 28px; padding: 4px 8px; }
+.el-table td .el-button + .el-button { margin-left: 0; }
+.storages-table td.el-table__cell:last-child > .cell,
+.storages-table th.el-table__cell:last-child > .cell { padding-left: 12px; padding-right: 12px; }
+
+/* ---------- P1-10 §5.1 加载态：遮罩精修 ----------
+   不用骨架屏：行高由 padding 决定，首屏行数未知，骨架屏会因行数变化产生跳动。
+   遮罩半透明到 .62，切 Dashboard 时间范围时数据仍可读（规格 §5.1.2）。
+   遮罩底色走 token，深色下不再是一层发白的雾。 */
+.el-loading-mask {
+  background-color: var(--bc-loading-mask);
+  backdrop-filter: blur(1px);
+  border-radius: inherit;         /* 跟随卡片圆角 */
+}
+.el-loading-spinner .circular { width: 26px; height: 26px; }   /* EP 默认 42px 偏大 */
+.el-loading-spinner .path { stroke: var(--bc-primary); stroke-width: 3; }
+.el-loading-text { color: var(--bc-text-secondary); font-size: var(--bc-fs-xs); }
+
+/* ---------- P1-10 §5.2 空状态统一 ----------
+   仅做视觉统一。文案统一（「暂无 X · 下一步动作」）需改各 .vue 的 empty-text
+   属性，属P1-11，不在本文件范围。 */
+.el-table .el-table__empty-block { min-height: 200px; padding: 56px 20px; }
+.el-table .el-table__empty-text {
+  color: var(--bc-text-secondary);
+  font-size: var(--bc-fs-sm);
+  line-height: 1.7;
+}
+/* 零 DOM 的极淡方框图标，让空状态有视觉锚点而不抢注意力 */
+.el-table .el-table__empty-text::before {
+  content: '';
+  display: block;
+  width: 40px; height: 32px;
+  margin: 0 auto 12px;
+  border: 1.5px dashed var(--bc-border-strong);
+  border-radius: var(--bc-radius-sm);
+  opacity: .7;
+}
+.empty {
+  padding: 56px 20px;
+  text-align: center;
+  color: var(--bc-text-secondary);
+  font-size: var(--bc-fs-sm);
+  line-height: 1.7;
+}
+
+/* ---------- P1-10 §5.3 ElMessage 视觉对齐 ----------
+   报错文案常超过 20 字且需要复制排查，全局 user-select:none 会让用户选不中，
+   故显式放开 .el-message__content 的可选区（规格 §5.3 + §4.6）。 */
+.el-message {
+  border-radius: var(--bc-radius);
+  border: 1px solid var(--bc-border-hair);
+  background: var(--bc-bg-elevated);
+  box-shadow: var(--bc-shadow-lg);
+  font-size: var(--bc-fs-sm);
+  padding: 10px 16px;
+}
+.el-message__icon { font-size: var(--bc-fs-base); }
+.el-message__content { cursor: text; user-select: text; -webkit-user-select: text; }
+/* EP 的 .el-message--success 等自带 --el-message-text-color，同选择器覆盖即可 */
+.el-message--success { --el-message-text-color: var(--bc-success); }
+.el-message--warning { --el-message-text-color: var(--bc-warning); }
+.el-message--error   { --el-message-text-color: var(--bc-danger); }
+.el-message--info    { --el-message-text-color: var(--bc-info); }
+
+/* ---------- P1-12 徽标状态点 + 「执行中」呼吸 ----------
+   让扫读时颜色成为第二线索而非第一线索（规格 §4.3）。
+   ⚠️ 为什么用绝对定位而不是规格里的 flex 首项（width:5px; margin-right:6px）：
+   flex 方案会实打实多占 11px 宽，而全站状态列只有 90px
+   （可用 90-32=58px），双汉字徽标已占 48px、三汉字（待连接/执行中/已上传）
+   已占 59px —— flex 方案下三汉字徽标会被 .cell 的 overflow:hidden 裁掉约 12px。
+   改绝对定位后点落在徽标自带的 12px 左内边距里，宽度增量为 0，任何列都不裁切。
+   ⚠️ .badge 是各 .vue 的 scoped 类，scoped 未声明 ::before，故全局规则可生效。 */
+.badge { position: relative; }
+.badge::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 50%;
+  width: 5px; height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: currentColor;      /* 跟随徽标文字色，语义色自动对齐 */
+  opacity: .85;
+}
+@keyframes bc-pulse {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
+/* 「执行中」是瞬时状态，需要动画冗余；用呼吸而非闪烁，避免干扰 */
+.badge.run::before { animation: bc-pulse 1.6s var(--bc-ease) infinite; }
+/* reduced-motion 兜底：呼吸退化为静止的点。文件末尾的全局兜底块已把
+   animation-duration 压到 .01ms，这里额外保证动画被彻底移除并给出静态不透明度。 */
+@media (prefers-reduced-motion: reduce) {
+  .badge.run::before { animation: none; opacity: .85; }
+}
+
+/* ---------- P1-8 帮助中心可扫读性（规格 §1.2-D）----------
+   Help.vue 是 745 行长文档：正文行宽在 2560px 下一行能放约 190 个汉字，
+   tab 头部不吸顶则切换 tab 后要滚回顶部，el-collapse 项之间无呼吸。
+   ⚠️ 本组选择器与 Help.vue 的 scoped 类同权重，靠源序取胜（style.css 在 main.js
+   于路由 chunk 之前加载）；此处只设置 scoped 未声明的属性，不会互相覆盖。 */
+.help-page { max-width: var(--bc-container-doc); margin-inline: auto; }
+.help-page .intro,
+.help-page .steps,
+.help-page .tip { max-width: 60em; }          /* ≈780px @13px，约 60 个汉字/行 */
+.help-page .tab-intro { background: var(--bc-bg-inset); }
+.help-page .doc-table code {
+  background: var(--bc-bg-inset);
+  border: 1px solid var(--bc-border-hair);
+}
+/* tab 头部吸顶：.el-main 是滚动容器，顶栏在其外，故 top:0 无需偏移 */
+.help-tabs .el-tabs__header {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bc-bg-card);
+}
+/* 折叠面板节奏：EP 默认边框较重，改为 hairline 分隔 + hover 反馈 */
+.help-page .el-collapse-item__header {
+  padding: 12px 16px;
+  border-radius: var(--bc-radius);
+  transition: background-color var(--bc-dur) var(--bc-ease);
+}
+.help-page .el-collapse-item__header:hover { background: var(--bc-bg-hover); }
+.help-page .el-collapse-item__content { padding-bottom: 20px; }
+.help-page .el-collapse { border-top: none; border-bottom: none; }
+.help-page .el-collapse-item { border-bottom: 1px solid var(--bc-border-hair); }
+.help-page .el-collapse-item:last-child { border-bottom: none; }
 
 /* ============================================================
    动效层 · 现代灵动（纯视觉，不影响任何功能）
