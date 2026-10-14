@@ -7,6 +7,7 @@ use App\Models\BackupUpload;
 use App\Models\Storage;
 use App\Models\Website;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -78,18 +79,46 @@ class CleanupExpiredBackups extends Command
                 continue;
             }
 
-            // 护栏 4：每网站至少保留最近 1 条成功备份。
-            // 必须在删除「之前」判定：先算出该网站最新一条成功备份，
-            // 若它落在待删集合里（本站很久没成功备份、全部超期），就从集合里剔除，
-            // 确保永远留有最新一条可恢复的备份。
-            $keeperId = BackupLog::where('website_id', $website->id)
-                ->where('status', BackupLog::STATUS_SUCCESS)
-                ->orderByDesc('backup_at')
-                ->orderByDesc('id')
-                ->value('id');
+            // 护栏 4：每个 source_key 分组各保留最近 1 条成功备份。
+            // 必须在删除「之前」判定。
+            //
+            // 为什么按 source_key 而不是按网站：websites.backup_paths 支持多个备份目录，
+            // 只按网站保 1 条时，某个目录（如 P2）的全部备份可能都比 P1 的最新一条旧，
+            // 于是 P2 的备份会被整组删光 —— 该目录再无可恢复的备份。按来源分组保 1 条
+            // 可以杜绝这种情况。
+            //
+            // source_key 非空且默认 ''，解析不出来的老数据全部落在同一个组里，
+            // 至少保住其中最新 1 条 → 保留量只增不减，不会比改动前更危险。
+            //
+            // 实现说明：分两级聚合（先取组内 MAX(backup_at)，再在该时刻的行里取 MAX(id)），
+            // 这样同一秒多条记录的并列也能稳定取到 id 最大的那条。
+            $keeperIds = DB::table('backup_logs as bl')
+                ->joinSub(
+                    DB::table('backup_logs')
+                        ->select('source_key')
+                        ->selectRaw('MAX(backup_at) AS max_backup_at')
+                        ->where('website_id', $website->id)
+                        ->where('status', BackupLog::STATUS_SUCCESS)
+                        ->groupBy('source_key'),
+                    'latest',
+                    function ($join) {
+                        $join->on('bl.source_key', '=', 'latest.source_key')
+                            ->on('bl.backup_at', '=', 'latest.max_backup_at');
+                    }
+                )
+                ->where('bl.website_id', $website->id)
+                ->where('bl.status', BackupLog::STATUS_SUCCESS)
+                ->groupBy('bl.source_key')
+                ->selectRaw('MAX(bl.id) AS keeper_id')
+                ->pluck('keeper_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
 
-            if ($keeperId !== null) {
-                $expired = $expired->reject(fn ($log) => (int) $log->id === (int) $keeperId)->values();
+            if ($keeperIds !== []) {
+                $keeperLookup = array_fill_keys($keeperIds, true);
+                $expired = $expired
+                    ->reject(fn ($log) => isset($keeperLookup[(int) $log->id]))
+                    ->values();
             }
 
             if ($expired->isEmpty()) {

@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Models\Storage;
 use App\Models\Website;
 use App\Services\NotificationDispatcher;
+use App\Support\BackupSource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -493,6 +494,13 @@ class AgentController extends Controller
         $log->fill([
             'server_id'        => $server->id,
             'full_path'        => $data['full_path']  ?? $log->full_path,
+            // 来源键：与迁移回填共用同一个纯函数，避免双份逻辑漂移。
+            // 只放 fill()，绝不能进 firstOrNew() 的幂等键（幂等键是 website_id+filename）。
+            'source_key'       => BackupSource::derive(
+                $data['filename'],
+                $data['full_path'] ?? null,
+                $website->backup_paths ?: []
+            ),
             'size'             => $data['size']       ?? $log->size,
             'status'           => $status,
             'backup_at'        => $data['backup_at'],
