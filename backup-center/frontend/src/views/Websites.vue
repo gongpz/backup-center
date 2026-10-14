@@ -222,6 +222,7 @@ const total = computed(() => meta.total)
       <el-table
         :data="list"
         v-loading="loading"
+        class="websites-table"
         style="width: 100%"
         row-key="id"
         empty-text="暂无网站 · 点击右上角添加"
@@ -387,6 +388,7 @@ const total = computed(() => meta.total)
 </template>
 
 <style scoped>
+/* 列序：1 网站 2 所属服务器 3 备份目录 4 网站根目录 5 最近备份 6 备份计划 7 保留 8 状态 9 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;

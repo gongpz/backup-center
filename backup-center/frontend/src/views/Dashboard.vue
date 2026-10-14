@@ -331,7 +331,7 @@ const fmtDuration = (sec) => {
         <router-link to="/backup-logs" class="chart-sub link">查看全部 →</router-link>
       </div>
       <div class="table-wrap">
-        <table v-if="tableRows.length">
+        <table v-if="tableRows.length" class="recent-table">
           <thead>
             <tr>
               <th>编号</th>
@@ -378,6 +378,7 @@ const fmtDuration = (sec) => {
 </template>
 
 <style scoped>
+/* 列序：1 编号 2 网站 3 服务器 4 大小 5 耗时 6 时间 7 状态(始终保留) */
 /* ---------- 顶部工具条 ---------- */
 .toolbar {
   display: flex;

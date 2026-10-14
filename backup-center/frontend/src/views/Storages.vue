@@ -162,6 +162,7 @@ const usageClass = (row) => {
       <el-table
         :data="list"
         v-loading="loading"
+        class="storages-table"
         style="width: 100%"
         row-key="id"
         empty-text="暂无存储 · 点击右上角添加"
@@ -278,6 +279,7 @@ const usageClass = (row) => {
 </template>
 
 <style scoped>
+/* 列序：1 名称/备注 2 类型 3 强制备份 4 目标路径 5 绑定网站 6 连接测试 7 存储资源 8 状态 9 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;

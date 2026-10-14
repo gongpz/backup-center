@@ -300,6 +300,7 @@ const bulkDispatch = () => {
       <el-table
         :data="list"
         v-loading="loading"
+        class="servers-table"
         style="width: 100%"
         row-key="id"
         empty-text="暂无服务器 · 点击右上角添加"
@@ -446,6 +447,7 @@ const bulkDispatch = () => {
 </template>
 
 <style scoped>
+/* 列序：1 名称/备注 2 连接方式 3 IP/系统 4 资源使用 5 Agent版本 6 最后心跳 7 状态 8 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;

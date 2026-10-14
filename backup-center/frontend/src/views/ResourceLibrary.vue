@@ -141,7 +141,7 @@ onMounted(async () => { await loadPools(); await loadFiles() })
         <el-progress :percentage="uploadProgress" :stroke-width="8" />
       </div>
 
-      <el-table :data="files" v-loading="loading" style="width: 100%; margin-top: 12px" empty-text="bucket 里还没有文件">
+      <el-table :data="files" v-loading="loading" class="resource-table" style="width: 100%; margin-top: 12px" empty-text="bucket 里还没有文件">
         <el-table-column label="文件" min-width="220">
           <template #default="{ row }">
             <a :href="row.public_url" target="_blank" class="link">{{ row.name }}</a>
@@ -198,6 +198,7 @@ onMounted(async () => { await loadPools(); await loadFiles() })
 </template>
 
 <style scoped>
+/* 列序：1 文件 2 备注 3 大小 4 修改时间 5 公开链接 6 操作(始终保留) */
 .toolbar { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
 .page-h { margin: 0; font-size: 20px; font-weight: 600; color: var(--bc-text-primary); }
 .page-sub { margin: 4px 0 0; font-size: 12px; color: var(--bc-text-secondary); }

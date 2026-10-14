@@ -191,6 +191,7 @@ const total = computed(() => meta.total)
       <el-table
         :data="list"
         v-loading="loading"
+        class="backup-logs-table"
         style="width: 100%"
         row-key="id"
         empty-text="暂无备份记录 · Agent 发现新备份文件后会自动上报"
@@ -339,6 +340,7 @@ const total = computed(() => meta.total)
 </template>
 
 <style scoped>
+/* 主表列序：1 展开 2 文件 3 网站 4 服务器 5 大小 6 用时 7 备份时间 8 状态 9 云上传 10 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;
