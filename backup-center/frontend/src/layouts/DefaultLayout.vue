@@ -116,7 +116,7 @@ const handleLogout = () => {
             </button>
           </el-tooltip>
           <el-tooltip content="查看备份失败记录" placement="bottom">
-            <button class="icon-btn" aria-label="备份记录" @click="gotoBackupLogs">
+            <button class="icon-btn" aria-label="查看备份失败记录" @click="gotoBackupLogs">
               <el-icon size="18"><Bell /></el-icon>
             </button>
           </el-tooltip>
@@ -263,6 +263,17 @@ const handleLogout = () => {
 :deep(.el-menu--collapse .el-menu-item) {
   padding-left: 20px !important;
 }
+/* 折叠态（64px）下指示条与图标对齐。
+   几何推导：侧栏 64px − 右边框 1px = 63px；.side-menu padding 左右各 10px
+   → 菜单项宽 43px；菜单项 padding-left 被压到 20px（上一条规则）
+   → 图标左边缘在 20px 处。指示条若留在 left:0，会与图标空出 17px，
+   折叠态下菜单项只剩图标，指示条与内容脱节、显得偏在不该在的位置。
+   竖条无法居中于图标（会压住图标），故改为紧贴图标左边缘：20 − 3(条宽) = 17px。
+   同时失去"贴住菜单项左边"的语义，圆角由 0 3px 3px 0 改为对称 3px。 */
+:deep(.el-menu--collapse .el-menu-item.is-active)::before {
+  left: 17px;
+  border-radius: 3px;
+}
 
 /* 侧栏底部用户卡已删除（R84） */
 
@@ -328,17 +339,19 @@ const handleLogout = () => {
   border-radius: 50%;
   background: var(--bc-danger);
 }
+/* 顶栏标题降级为"面包屑式"小标题：各视图内已有 .page-h（20px）作为真正的页面级标题，
+   顶栏再用一个 15px/600 的一级标题会造成层级倒挂 + 标题双写 */
 .page-title h1 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--bc-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bc-text-secondary);
   line-height: 1.2;
 }
 .page-title p {
   margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--bc-text-secondary);
+  font-size: 11px;
+  color: var(--bc-text-placeholder);
 }
 
 .header-right {

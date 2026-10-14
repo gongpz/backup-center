@@ -342,7 +342,10 @@ const bulkDispatch = () => {
                 <el-progress :percentage="row.cpu_usage || 0" :stroke-width="6" :show-text="false" />
                 <span class="u-val">{{ row.cpu_usage ?? 0 }}%</span>
               </div>
-              <div class="usage-row">
+              <div
+                class="usage-row"
+                :title="(row.mem_usage ?? 0) > 85 ? `内存 · 已用 ${row.mem_usage ?? 0}% · ⚠ 内存不足` : `内存 · 已用 ${row.mem_usage ?? 0}%`"
+              >
                 <span class="u-label">内存</span>
                 <el-progress :percentage="row.mem_usage || 0" :stroke-width="6" :show-text="false" />
                 <span class="u-val">{{ row.mem_usage ?? 0 }}%</span>
@@ -353,7 +356,7 @@ const bulkDispatch = () => {
                   v-for="d in row.disks.slice(0, 3)"
                   :key="d.mount"
                   class="usage-row"
-                  :title="`${d.mount} · ${d.fs} · 已用 ${fmtBytes(d.used)} / 总 ${fmtBytes(d.total)}`"
+                  :title="`${d.mount} · ${d.fs} · 已用 ${fmtBytes(d.used)} / 总 ${fmtBytes(d.total)}` + (diskPct(d) > 85 ? ' · ⚠ 空间不足' : '')"
                 >
                   <span class="u-label u-mount">{{ d.mount }}</span>
                   <el-progress
@@ -368,7 +371,11 @@ const bulkDispatch = () => {
                   还有 {{ row.disks.length - 3 }} 个分区，见详情
                 </div>
               </template>
-              <div v-else-if="row.disk_usage != null" class="usage-row">
+              <div
+                v-else-if="row.disk_usage != null"
+                class="usage-row"
+                :title="(row.disk_usage ?? 0) > 85 ? `磁盘 · 已用 ${row.disk_usage ?? 0}% · ⚠ 空间不足` : `磁盘 · 已用 ${row.disk_usage ?? 0}%`"
+              >
                 <span class="u-label">磁盘</span>
                 <el-progress :percentage="row.disk_usage || 0" :stroke-width="6" :show-text="false" />
                 <span class="u-val">{{ row.disk_usage ?? 0 }}%</span>
