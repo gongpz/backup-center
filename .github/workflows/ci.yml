@@ -1,0 +1,90 @@
+name: CI
+
+# 质量门禁：后端跑 php artisan test，前端跑 npm run build。
+# 之前任何改动都只靠本地手工验证，换人接手就没有兜底 —— 这个 workflow 补上这一层。
+# 注意：要在 GitHub 上真正「拦住」不合格的合并，还需要在分支保护规则里
+# 把 CI 的两个 job 设为 required status check（本文件做不到这件事）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backup-center/backend/**'
+      - 'backup-center/frontend/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'backup-center/backend/**'
+      - 'backup-center/frontend/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    name: 后端测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # composer.json 声明 php ^8.2，这里与本地环境（8.2.33）保持一致
+      - name: 准备 PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          # pdo_sqlite/sqlite3 是必需的：phpunit.xml 把测试库配成 sqlite :memory:
+          extensions: mbstring, xml, curl, zip, bcmath, intl, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: 缓存 Composer 依赖
+        uses: actions/cache@v4
+        with:
+          path: backup-center/backend/vendor
+          key: composer-${{ runner.os }}-php8.2-${{ hashFiles('backup-center/backend/composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-php8.2-
+
+      - name: 安装依赖
+        working-directory: backup-center/backend
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: 准备测试环境
+        working-directory: backup-center/backend
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      # composer.json 的 test 脚本 = artisan config:clear + artisan test
+      - name: 运行测试
+        working-directory: backup-center/backend
+        run: composer test
+
+  frontend-build:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backup-center/frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: backup-center/frontend
+        run: npm ci
+
+      # 只校验能否编译通过；不涉及 Pages 的 --base=/backup-center/（那是 demo-pages.yml 的事）
+      - name: 构建
+        working-directory: backup-center/frontend
+        run: npm run build
