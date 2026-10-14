@@ -95,7 +95,9 @@ const statsRow1 = computed(() => {
       label: `${rangePrefix.value}失败数量`,
       value: s.period_failed.toLocaleString(),
       change: c.failed,
-      changeReversed: true, // 失败下降是好事
+      changeReversed: true, // 失败下降是好事：箭头反映真实数值方向，颜色反映「好/坏」情绪
+      // 红底卡片偶尔出现绿色易让运维误读「失败是好事」，补一句说明把语义钉死
+      changeHint: 'vs 上一周期 · 越低越好',
       icon: CircleClose, tone: 'red',
     },
   ]
@@ -233,7 +235,7 @@ const fmtDuration = (sec) => {
             <component :is="s.change >= 0 ? ArrowUp : ArrowDown" />
           </el-icon>
           <span>{{ fmtPct(s.change).text }}</span>
-          <span class="change-hint">vs 上一周期</span>
+          <span class="change-hint">{{ s.changeHint || 'vs 上一周期' }}</span>
         </div>
         <div v-else class="stat-change up">
           <span class="change-hint">{{ s.hint || '—' }}</span>
@@ -256,7 +258,7 @@ const fmtDuration = (sec) => {
             <component :is="s.change >= 0 ? ArrowUp : ArrowDown" />
           </el-icon>
           <span>{{ fmtPct(s.change).text }}</span>
-          <span class="change-hint">vs 上一周期</span>
+          <span class="change-hint">{{ s.changeHint || 'vs 上一周期' }}</span>
         </div>
         <div v-else class="stat-change up">
           <span class="change-hint">全部时间累计</span>
