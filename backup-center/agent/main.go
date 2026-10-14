@@ -457,8 +457,8 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 		})
 
 	case "restore":
-		// 远程恢复（最小可用版）：把云端归档 rclone copy 回原本地目录，
-		// 不做解包 / 不自动导入数据库，由管理员手动处理（解压 tar / 导入 .sql）
+		// 远程恢复：lite 模式仅把云端归档 rclone copy 回本地目录留档，由管理员手动处理；
+		// advanced 模式（params.restore_mode=advanced）在下载成功后自动预备份 + 解压覆盖网站根目录 / 重建导入数据库
 		output, err := performRestore(cmd, c, scn, up)
 		if err != nil {
 			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
@@ -520,10 +520,12 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 	}
 }
 
-// performRestore 把云端归档 rclone copy 回原本地目录（最小可用版）。
+// performRestore 把云端归档 rclone copy 回本地目录。
 // remote_path 形如 bc_14:bucket/backups/站点/20260809/file.tar.gz（已含 rclone remote 前缀），
 // 因此无需再解析 storage_id，直接复用 rclone.conf 里的 bc_<id> remote 即可。
-// 仅下载归档，不自动解包 / 不自动导入数据库。
+// lite 模式：仅下载归档，由管理员手动处理（解压 tar / 导入 .sql）；
+// advanced 模式：下载成功后按文件名分类，自动预备份 + 解压覆盖 / DROP+CREATE+导库
+// （见 performAdvancedWebRestore / performAdvancedDBRestore，任一步失败均附带预备份路径便于回滚）。
 // 长任务期间每 5s 通过 c.CommandProgress 上报 rclone 最新进度行（status 保持 dispatched）。
 func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.Scanner, up *uploader.Uploader) (string, error) {
 	p := cmd.Params
