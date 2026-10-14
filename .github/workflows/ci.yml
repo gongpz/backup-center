@@ -59,6 +59,18 @@ jobs:
           extensions: mbstring, xml, curl, zip, bcmath, intl, mysql, pdo_mysql
           coverage: none
 
+      # 一次性环境自检：把 PHP 版本与关键扩展以 GitHub 注释（annotation）形式输出。
+      # 目的是在拿不到运行日志（匿名 API 403）时，仍能确认 CI 环境 —— 尤其排查
+      # 「本地全过、CI 全挂」这类由扩展缺失导致的应用启动失败。
+      - name: PHP 环境自检
+        run: |
+          echo "::notice::PHP version: $(php -r 'echo PHP_VERSION;')"
+          missing=""
+          for ext in pdo_mysql mysql pdo_sqlite sqlite3 mbstring intl bcmath zip curl openssl tokenizer ctype json fileinfo dom xml sodium; do
+            if ! php -m 2>/dev/null | grep -qi "^${ext}$"; then missing="$missing $ext"; fi
+          done
+          if [ -n "$missing" ]; then echo "::warning::MISSING extensions:$missing"; else echo "::notice::all key extensions present"; fi
+
       - name: 缓存 Composer 依赖
         uses: actions/cache@v4
         with:
@@ -88,9 +100,21 @@ jobs:
 
       # CI 专用配置（phpunit.ci.xml）把测试库指向 MySQL；其余与原 phpunit.xml 一致。
       # 不直接用 composer test（它固定跑默认 sqlite 配置），这里显式指定配置。
+      # 失败时把 phpunit 摘要转成 GitHub 注释，便于在拿不到日志时也能定位到具体报错。
       - name: 运行测试
         working-directory: backup-center/backend
-        run: vendor/bin/phpunit --configuration phpunit.ci.xml --no-coverage
+        run: |
+          set +e
+          vendor/bin/phpunit --configuration phpunit.ci.xml --no-coverage 2>&1 | tee phpunit.out
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::group::phpunit 失败摘要"
+            grep -nE "Fatal error|Call to undefined|Class .* not found|not found|SQLSTATE|Exception|✘|FAILURES!|ERRORS!|Failed asserting|^[0-9]+\) " phpunit.out | head -40 | while IFS= read -r line; do
+              echo "::error::${line//%/%%}"
+            done
+            echo "::endgroup::"
+          fi
+          exit "$code"
 
   frontend-build:
     name: 前端构建
