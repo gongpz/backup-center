@@ -30,6 +30,22 @@ jobs:
   backend-test:
     name: 后端测试
     runs-on: ubuntu-latest
+    # 用 MySQL 8 起服务容器，测试库引擎与生产一致，排除 sqlite 专属问题
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: test
+          MYSQL_USER: test
+          MYSQL_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -39,8 +55,8 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          # pdo_sqlite/sqlite3 是必需的：phpunit.xml 把测试库配成 sqlite :memory:
-          extensions: mbstring, xml, curl, zip, bcmath, intl, sqlite3, pdo_sqlite
+          # pdo_mysql 是必需的：CI 用 MySQL 跑测试（phpunit.ci.xml）
+          extensions: mbstring, xml, curl, zip, bcmath, intl, mysql, pdo_mysql
           coverage: none
 
       - name: 缓存 Composer 依赖
@@ -61,10 +77,20 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
-      # composer.json 的 test 脚本 = artisan config:clear + artisan test
+      # MySQL 服务容器就绪前先探活，避免迁移阶段连不上库
+      - name: 等待 MySQL 就绪
+        working-directory: backup-center/backend
+        run: |
+          for i in $(seq 1 30); do
+            php -r "new PDO('mysql:host=127.0.0.1;port=3306;dbname=test','test','test'); exit(0);" 2>/dev/null && { echo 'MySQL ready'; break; }
+            echo "waiting for MySQL... ($i)"; sleep 2
+          done
+
+      # CI 专用配置（phpunit.ci.xml）把测试库指向 MySQL；其余与原 phpunit.xml 一致。
+      # 不直接用 composer test（它固定跑默认 sqlite 配置），这里显式指定配置。
       - name: 运行测试
         working-directory: backup-center/backend
-        run: composer test
+        run: vendor/bin/phpunit --configuration phpunit.ci.xml --no-coverage
 
   frontend-build:
     name: 前端构建
