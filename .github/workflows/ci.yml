@@ -89,14 +89,23 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
-      # MySQL 服务容器就绪前先探活，避免迁移阶段连不上库
+      # MySQL 服务容器就绪前先探活。冷启动（首次拉 mysql:8.0 镜像）可能超过 60s，
+      # 之前就是竞态导致「库没起好就跑测试」而失败；这里放宽到 ~180s 且没就绪就直接
+      # 失败并注释出来，而不是带着连不上的库去跑测试、报一堆误导性错误。
       - name: 等待 MySQL 就绪
         working-directory: backup-center/backend
         run: |
-          for i in $(seq 1 30); do
-            php -r "new PDO('mysql:host=127.0.0.1;port=3306;dbname=test','test','test'); exit(0);" 2>/dev/null && { echo 'MySQL ready'; break; }
-            echo "waiting for MySQL... ($i)"; sleep 2
+          ready=0
+          for i in $(seq 1 60); do
+            if php -r "new PDO('mysql:host=127.0.0.1;port=3306;dbname=test','test','test');" 2>/dev/null; then
+              ready=1; echo "MySQL ready (attempt $i)"; break
+            fi
+            echo "waiting for MySQL... ($i)"; sleep 3
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::MySQL 服务在约 180 秒内未就绪，终止（避免冷启动竞态误导定位）"
+            exit 1
+          fi
 
       # CI 专用配置（phpunit.ci.xml）把测试库指向 MySQL；其余与原 phpunit.xml 一致。
       # 不直接用 composer test（它固定跑默认 sqlite 配置），这里显式指定配置。
@@ -113,6 +122,10 @@ jobs:
               echo "::error::${line//%/%%}"
             done
             echo "::endgroup::"
+          else
+            # 通过时也把测试摘要以注释输出，作为「门禁真的在跑测试」的长期证据
+            summary=$(grep -E "^OK \(|^Tests: " phpunit.out | tail -1)
+            [ -n "$summary" ] && echo "::notice::phpunit $summary"
           fi
           exit "$code"
 
