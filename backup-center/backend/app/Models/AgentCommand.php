@@ -17,6 +17,10 @@ class AgentCommand extends Model
     public const TYPE_RESTORE  = 'restore';
     public const TYPE_BIND_ROOT = 'bind_root';
     public const TYPE_SELF_BACKUP = 'self_backup';
+    // 保留期清理（C4/T2）：Center 按 retention_days 算出超期文件清单，Agent 用本地
+    // rclone.conf 删云端（encryption+agent_local 时中心无密码，只能由 Agent 执行）。
+    // params: {files: [{log_id, remote_path}, ...]} —— 绝不携带任何凭据。
+    public const TYPE_CLEANUP_RETENTION = 'cleanup_retention';
 
     protected $fillable = [
         'server_id',
@@ -29,6 +33,7 @@ class AgentCommand extends Model
         'to_version',
         'dispatched_at',
         'completed_at',
+        'reconciled_at',
     ];
 
     /** dispatched 超过多少分钟视为 stale（sweeper 用；也用于放宽 exists 检查） */
@@ -40,6 +45,7 @@ class AgentCommand extends Model
             'params'        => 'array',
             'dispatched_at' => 'datetime',
             'completed_at'  => 'datetime',
+            'reconciled_at' => 'datetime',
         ];
     }
 

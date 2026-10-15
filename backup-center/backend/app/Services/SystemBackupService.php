@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Storage;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Backup Center 自身备份逻辑（SQLite 快照 + env 快照 + tar → rclone 上传到强制备份存储）
@@ -131,7 +132,17 @@ class SystemBackupService
         $confPath = tempnam(sys_get_temp_dir(), 'rc_');
         $tmpFiles = [$confPath];
         try {
-            $conf = $this->buildRcloneConfSection($remote, $s, $tmpFiles);
+            $warnings = [];
+            $conf = $this->buildRcloneConfSection($remote, $s, $tmpFiles, $warnings);
+            if ($warnings !== []) {
+                // obscure 失败：宁可这次不备份到这家存储，也不把明文密码写进临时 conf
+                Log::warning('系统备份：rclone 配置无法安全生成，已跳过该存储', [
+                    'storage_id'   => $s->id,
+                    'storage_name' => $s->name,
+                    'warnings'     => $warnings,
+                ]);
+                return [false, implode('；', $warnings), ''];
+            }
             file_put_contents($confPath, $conf);
             chmod($confPath, 0600);
 
@@ -160,7 +171,11 @@ class SystemBackupService
         }
     }
 
-    private function buildRcloneConfSection(string $remote, Storage $s, array &$tempFiles): string
+    /**
+     * 生成临时 rclone.conf 的一段。&$warnings 收集"无法安全生成配置"的原因
+     * （obscure 失败）——出现 warning 时调用方必须跳过该存储，绝不降级明文。
+     */
+    private function buildRcloneConfSection(string $remote, Storage $s, array &$tempFiles, array &$warnings = []): string
     {
         $c = $s->config;
         $lines = ["[{$remote}]"];
@@ -170,7 +185,7 @@ class SystemBackupService
                 $lines[] = 'host = ' . ($c['host'] ?? '');
                 if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', (string) ($c['password'] ?? ''), '存储密码', $warnings);
                 if (! empty($c['private_key'])) {
                     $keyPath = tempnam(sys_get_temp_dir(), 'sshkey_');
                     $tempFiles[] = $keyPath;
@@ -184,7 +199,7 @@ class SystemBackupService
                 $lines[] = 'host = ' . ($c['host'] ?? '');
                 if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', (string) ($c['password'] ?? ''), '存储密码', $warnings);
                 if (! empty($c['tls'])) $lines[] = 'tls = true';
                 if (! empty($c['explicit_tls'])) $lines[] = 'explicit_tls = true';
                 if (! empty($c['no_check_certificate'])) $lines[] = 'no_check_certificate = true';
@@ -194,7 +209,7 @@ class SystemBackupService
                 $lines[] = 'url = ' . ($c['url'] ?? '');
                 if (! empty($c['vendor'])) $lines[] = 'vendor = ' . $c['vendor'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', (string) ($c['password'] ?? ''), '存储密码', $warnings);
                 break;
             case Storage::TYPE_S3:
                 $lines[] = 'type = s3';
@@ -211,10 +226,31 @@ class SystemBackupService
         return implode("\n", $lines) . "\n";
     }
 
-    private function rcloneObscure(string $plain): string
+    /**
+     * 写一行需要 obscure 的凭证。obscure 失败时不写这一行（绝不退回明文），
+     * 而是记 warning 让调用方跳过该存储 —— 与 Go Agent 端行为对齐。
+     */
+    private function appendObscured(array &$lines, string $key, string $plain, string $label, array &$warnings): void
     {
+        $obscured = $this->rcloneObscure($plain);
+        if ($obscured === null) {
+            $warnings[] = "{$label} obscure 失败，已跳过该存储（禁止明文降级）";
+            return;
+        }
+        $lines[] = $key . ' = ' . $obscured;
+    }
+
+    /**
+     * rclone 密码需要 obscure。返回 null 表示 obscure 失败 —— 调用方必须跳过并告警，
+     * 禁止退回明文写 conf（与 Go Agent 端行为对齐）。
+     */
+    private function rcloneObscure(?string $plain): ?string
+    {
+        if ($plain === null || $plain === '') {
+            return null;
+        }
         $out = trim((string) shell_exec('rclone obscure ' . escapeshellarg($plain) . ' 2>/dev/null'));
-        return $out !== '' ? $out : $plain;
+        return $out !== '' ? $out : null;
     }
 
     private function humanBytes(int $n): string
