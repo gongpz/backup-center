@@ -510,6 +510,25 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Output:    output,
 		})
 
+	case "cleanup_retention":
+		// 保留期清理：删超期归档的云端文件，指令只带 log_id + remote_path，不含任何凭据
+		output, err := performRetentionCleanup(cmd, c)
+		if err != nil {
+			slog.Warn("保留期清理失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{
+				CommandID: cmd.ID,
+				Status:    "failed",
+				Output:    output,
+				Error:     err.Error(),
+			})
+			return
+		}
+		_ = c.CommandResult(&client.CommandResultRequest{
+			CommandID: cmd.ID,
+			Status:    "success",
+			Output:    output,
+		})
+
 	default:
 		slog.Warn("未知指令类型，忽略", "type", cmd.Type, "id", cmd.ID)
 		_ = c.CommandResult(&client.CommandResultRequest{
@@ -518,6 +537,131 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Error:     "未支持的指令类型: " + cmd.Type,
 		})
 	}
+}
+
+// cleanupProgressInterval 保留期清理每处理多少条上报一次进度
+const cleanupProgressInterval = 20
+
+// performRetentionCleanup 删除超期备份的云端文件（C4）。
+// params.files 为数组，元素 {log_id: number, remote_path: string}；remote_path 原样取自库里存的值
+// （形如 bc_14:bucket/... 或加密后的 bc_14_c:...），直接用本地 rclone.conf 驱动，
+// 全程不接触任何存储凭据——这也是本指令存在的意义：Center 不再需要持存储密码跑 rclone。
+//
+// 幂等语义是契约的关键：Center 只在指令 success 后才删 backup_logs 行，failed 时行保留下轮重派，
+// 所以 rclone 报 "not found" 必须计入"已不存在"（视为已删除），否则同一条会永远失败、行永远删不掉。
+// 有任何一条真失败时返回 error，让 Center 保留行重派。
+func performRetentionCleanup(cmd *client.PendingCommand, c *client.Client) (string, error) {
+	if cmd.Params == nil {
+		return "", fmt.Errorf("保留期清理指令缺少参数")
+	}
+	rawFiles, ok := cmd.Params["files"].([]interface{})
+	if !ok || len(rawFiles) == 0 {
+		return "", fmt.Errorf("无待清理文件")
+	}
+	if _, err := exec.LookPath("rclone"); err != nil {
+		return "", fmt.Errorf("未检测到 rclone，无法执行保留期清理: %w", err)
+	}
+
+	total := len(rawFiles)
+	var deleted, missing, failed int
+	var failedPaths []string
+
+	// 进度行与既有 restore 进度一致：超 300 字节就截断
+	report := func(done int) {
+		line := fmt.Sprintf("[清理 %d/%d] 删除 %d，已不存在 %d，失败 %d", done, total, deleted, missing, failed)
+		if len(line) > 300 {
+			line = line[:300] + "…"
+		}
+		_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: line})
+	}
+
+	for i, item := range rawFiles {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			failed++
+			failedPaths = append(failedPaths, fmt.Sprintf("第 %d 条：参数格式错误", i+1))
+			continue
+		}
+		remotePath, _ := entry["remote_path"].(string)
+		if remotePath == "" {
+			failed++
+			failedPaths = append(failedPaths, fmt.Sprintf("第 %d 条：remote_path 为空", i+1))
+			continue
+		}
+		// 前缀守卫：只接受 Agent 自己渲染的 bc_<id>: / bc_<id>_c: remote，
+		// 避免被篡改的指令拿本地 conf 去删任意远端。
+		if !isManagedRemotePath(remotePath) {
+			failed++
+			failedPaths = append(failedPaths, remotePath+"（remote 前缀不受管，已拒绝）")
+			continue
+		}
+		logID, _ := parseInt64Param(entry["log_id"]) // 仅用于日志定位，删除动作不需要
+
+		rc := exec.Command("rclone", "deletefile",
+			"--config", rcloneConfPath,
+			"--retries", "2",
+			remotePath,
+		)
+		stderr := &strings.Builder{}
+		rc.Stderr = stderr
+		if err := rc.Run(); err == nil {
+			deleted++
+		} else {
+			msg := strings.TrimSpace(stderr.String())
+			if msg == "" {
+				msg = err.Error()
+			}
+			lower := strings.ToLower(msg)
+			if strings.Contains(lower, "not found") {
+				// 已删除 / 本来就不存在：算成功，保证重派幂等
+				missing++
+				slog.Info("保留期清理：云端文件已不存在，按已删除处理",
+					"log_id", logID, "remote_path", remotePath)
+			} else {
+				failed++
+				if len(msg) > 120 {
+					msg = msg[:120] + "…"
+				}
+				failedPaths = append(failedPaths, fmt.Sprintf("%s（%s）", remotePath, msg))
+				slog.Warn("保留期清理：删除云端文件失败",
+					"log_id", logID, "remote_path", remotePath, "err", msg)
+			}
+		}
+
+		if (i+1)%cleanupProgressInterval == 0 {
+			report(i + 1)
+		}
+	}
+	report(total)
+
+	summary := fmt.Sprintf("保留期清理完成：删除 %d，已不存在 %d，失败 %d", deleted, missing, failed)
+	if len(failedPaths) > 0 {
+		list := strings.Join(failedPaths, "; ")
+		if len(list) > 600 {
+			list = list[:600] + "…"
+		}
+		summary += "\n失败清单：" + list
+	}
+	if failed > 0 {
+		return summary, fmt.Errorf("保留期清理未完成：%d 个云端文件删除失败（已删除 %d，已不存在 %d），数据库行保留待下轮重派",
+			failed, deleted, missing)
+	}
+	return summary, nil
+}
+
+// isManagedRemotePath 判断 remote_path 是否落在 Agent 自己渲染的 remote 上（bc_<id>: / bc_<id>_c:）
+func isManagedRemotePath(p string) bool {
+	colon := strings.Index(p, ":")
+	if colon <= 0 {
+		return false
+	}
+	name := p[:colon]
+	idStr := strings.TrimSuffix(strings.TrimPrefix(name, "bc_"), "_c")
+	if idStr == name { // 不是 bc_ 开头
+		return false
+	}
+	_, err := strconv.ParseInt(idStr, 10, 64)
+	return err == nil
 }
 
 // performRestore 把云端归档 rclone copy 回本地目录。
