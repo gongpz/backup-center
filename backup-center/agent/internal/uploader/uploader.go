@@ -20,13 +20,18 @@ type Uploader struct {
 
 	mu       sync.Mutex
 	storages map[int64]client.Storage
+	// cryptSections 记录哪些存储成功渲染了 crypt 包裹节（C1）。
+	// remoteTargetPath 据此决定上传前缀 bc_<id>_c:；加密启用但 section 缺失时
+	// 返回错误，禁止静默降级为明文 remote。
+	cryptSections map[int64]bool
 }
 
 func New(c *client.Client, configPath string) *Uploader {
 	return &Uploader{
-		client:     c,
-		configPath: configPath,
-		storages:   make(map[int64]client.Storage),
+		client:        c,
+		configPath:    configPath,
+		storages:      make(map[int64]client.Storage),
+		cryptSections: make(map[int64]bool),
 	}
 }
 
@@ -36,11 +41,22 @@ func (u *Uploader) UpdateStorages(storages []client.Storage) error {
 	defer u.mu.Unlock()
 
 	u.storages = make(map[int64]client.Storage, len(storages))
+	valid := make(map[int64]bool, len(storages))
 	for _, s := range storages {
 		u.storages[s.ID] = s
+		valid[s.ID] = true
 	}
 
-	return u.writeRcloneConf()
+	if err := u.writeRcloneConf(); err != nil {
+		return err
+	}
+
+	// C5：只在成功写入新 conf 后清理残留（与 conf 写入同一把锁）——
+	// 删除不在本次存储集合中的 bc_<id>/bc_<id>_c section 与 keys/bc_<id>.key；
+	// 本次集合内的 id 一律不删。
+	pruneStaleSections(u.configPath, valid)
+	cleanupStaleKeyFiles(valid)
+	return nil
 }
 
 // StorageByID 查询存储
@@ -91,7 +107,18 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 		return
 	}
 
-	remoteTarget := u.remoteTargetPath(storage, websiteName, batchDir, filepath.Base(localFile))
+	remoteTarget, err := u.remoteTargetPath(storage, websiteName, batchDir, filepath.Base(localFile))
+	if err != nil {
+		// 加密启用但 crypt section 缺失等场景：拒绝上传并上报，绝不静默降级明文 remote
+		slog.Warn("目标路径生成失败，跳过上传", "log_id", logID, "storage", storage.Name, "err", err)
+		u.report(logID, storageID, client.UploadReportRequest{
+			BackupLogID:  logID,
+			StorageID:    storageID,
+			Status:       "failed",
+			ErrorMessage: err.Error(),
+		})
+		return
+	}
 
 	// 报 uploading
 	u.report(logID, storageID, client.UploadReportRequest{
@@ -118,7 +145,7 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	duration := int(time.Since(start).Seconds())
 
 	fileSize := int64(0)
@@ -168,9 +195,20 @@ func (u *Uploader) report(logID, storageID int64, req client.UploadReportRequest
 
 // remoteTargetPath 生成 rclone 目标路径
 // 例如 bc_14:bucket/backups/博客/20260809_07/file.tar.gz
+// 加密存储（C1）前缀为 bc_<id>_c:（crypt 包裹节），路径其余部分一字不动。
 // batchDir 是时间戳子目录（按小时归组），空串则不加时间戳层（保底兼容）
-func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, filename string) string {
+// 加密启用但 crypt section 缺失（密码不可用/obscure 失败）时返回错误，禁止降级明文。
+func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, filename string) (string, error) {
 	remote := remoteName(s.ID)
+	if encryptionEnabled(s.Config) {
+		u.mu.Lock()
+		hasCrypt := u.cryptSections[s.ID]
+		u.mu.Unlock()
+		if !hasCrypt {
+			return "", fmt.Errorf("存储 %q（ID %d）已启用加密，但 rclone.conf 中缺少 %s_c 配置节（加密密码不可用或 obscure 失败），已拒绝降级为明文上传", s.Name, s.ID, remote)
+		}
+		remote = remote + "_c"
+	}
 	site := sanitizePathSegment(websiteName)
 
 	// S3：base_path 是 bucket 内 prefix，去掉两侧 /，然后 bucket + base + site + batch + file
@@ -187,7 +225,7 @@ func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, fil
 			parts = append(parts, batchDir)
 		}
 		parts = append(parts, filename)
-		return remote + ":" + strings.Join(parts, "/")
+		return remote + ":" + strings.Join(parts, "/"), nil
 	}
 
 	// SFTP/FTP/WebDAV：base_path 前导 / 必须保留 —— 相对路径会被 rclone 拼登录目录导致"双重路径"
@@ -197,9 +235,9 @@ func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, fil
 		prefix = base + "/"
 	}
 	if batchDir != "" {
-		return remote + ":" + prefix + site + "/" + batchDir + "/" + filename
+		return remote + ":" + prefix + site + "/" + batchDir + "/" + filename, nil
 	}
-	return remote + ":" + prefix + site + "/" + filename
+	return remote + ":" + prefix + site + "/" + filename, nil
 }
 
 // remoteName 生成 rclone remote 名称
