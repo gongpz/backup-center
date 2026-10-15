@@ -188,9 +188,10 @@ class StorageController extends Controller
      */
     private function cryptRoundTripProbe(string $confPath, string $remote, Storage $storage, array &$tempFiles): array
     {
-        // 探测文件落在 base_path（真实备份落地处）：S3 形如 bucket/base_path/rand，其余为 base_path/rand
-        $bucket = $storage->type === Storage::TYPE_S3 ? trim((string) ($storage->config['bucket'] ?? ''), '/') : '';
-        $prefix = trim(($bucket !== '' ? $bucket . '/' : '') . trim((string) $storage->base_path, '/'), '/');
+        // 探测文件落在 base_path。S3 的 bucket 已放进 crypt remote 的 base（buildRcloneConf：remote=probe_<id>:bucket），
+        // 所以这里 path 只放 base_path，绝不能再带 bucket —— 否则 crypt 会把 bucket 名一起加密，
+        // S3 把加密后的名字当 bucket → object not found。
+        $prefix = trim((string) $storage->base_path, '/');
         $rand = bin2hex(random_bytes(6));
         $target = $remote . '_c:' . ($prefix !== '' ? $prefix . '/' : '') . $rand;
 
@@ -378,9 +379,17 @@ class StorageController extends Controller
             $lines[] = '';
             $lines[] = "[{$remote}_c]";
             $lines[] = 'type = crypt';
-            // 必须带末尾冒号：remote 指向"另一个 remote 名"（probe_<id>:），冒号不可省；
-            // 省略会被 rclone 当成相对本地目录，拼到后端 cwd（/var/www/html/public）下 mkdir，报 permission denied。
-            $lines[] = 'remote = ' . $remote . ':';
+            // remote 指向底层 remote 名，必须带冒号。S3 还要把 bucket 拼进来（remote = probe_<id>:bucket）：
+            // crypt 只能加密 bucket 之后的路径，bucket 名本身不能被加密，否则底层 S3 remote 会把加密后的
+            // 字符串当成 bucket 名去访问 → object not found。非 S3 无 bucket 概念，保持 probe_<id>:。
+            $cryptRemote = $remote . ':';
+            if ($storage->type === Storage::TYPE_S3) {
+                $bucket = trim((string) ($c['bucket'] ?? ''), '/');
+                if ($bucket !== '') {
+                    $cryptRemote = $remote . ':' . $bucket;
+                }
+            }
+            $lines[] = 'remote = ' . $cryptRemote;
             $obscured = $this->rcloneObscure((string) ($enc['password'] ?? ''));
             if ($obscured === null) {
                 // 拿不到 obscure 值时绝不写明文：省略 password 行并告警，调用方跳过该存储

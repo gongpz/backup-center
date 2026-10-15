@@ -224,6 +224,35 @@ class StorageEncryptionTest extends TestCase
         $this->assertStringNotContainsString('type = crypt', $conf);
     }
 
+    public function test_probe_conf_s3_crypt_remote_includes_bucket(): void
+    {
+        // S3 + 加密：crypt remote 必须把 bucket 拼进 base（remote=probe_<id>:bucket），
+        // 让 crypt 只加密 bucket 之后的路径；否则 bucket 名被一起加密，
+        // 底层 S3 remote 把加密串当 bucket 名 → object not found（加密上传失败）。
+        $storage = Storage::create([
+            'name'      => 'S3 加密存储',
+            'type'      => Storage::TYPE_S3,
+            'status'    => Storage::STATUS_ENABLED,
+            'base_path' => '/backups',
+            'config'    => [
+                'endpoint'          => 's3.cstcloud.cn',
+                'region'            => 'us-west-000',
+                'bucket'            => 'my-bucket',
+                'access_key_id'     => 'AKIATEST',
+                'secret_access_key' => 'secret-test',
+                'encryption'        => $this->centerEncryption(),
+            ],
+        ]);
+
+        [$conf] = $this->renderConf($storage, 'probe_' . $storage->id);
+        $this->assertStringContainsString('[probe_' . $storage->id . '_c]', $conf);
+        $this->assertStringContainsString('type = crypt', $conf);
+        // 关键：S3 的 crypt remote 带 bucket（冒号后紧跟 bucket 名），bucket 不进加密 path
+        $this->assertStringContainsString('remote = probe_' . $storage->id . ':my-bucket', $conf);
+        // 底层 remote 自身仍是无 bucket 的 s3 段
+        $this->assertStringContainsString('type = s3', $conf);
+    }
+
     public function test_obscure_failure_is_reported_as_warning_not_plaintext(): void
     {
         // CI / 本地没有 rclone 时 shell_exec 返回空 ⇒ obscure 失败 ⇒ 只告警、不写明文

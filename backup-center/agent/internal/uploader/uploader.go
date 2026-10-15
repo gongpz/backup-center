@@ -200,7 +200,8 @@ func (u *Uploader) report(logID, storageID int64, req client.UploadReportRequest
 // 加密启用但 crypt section 缺失（密码不可用/obscure 失败）时返回错误，禁止降级明文。
 func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, filename string) (string, error) {
 	remote := remoteName(s.ID)
-	if encryptionEnabled(s.Config) {
+	encrypted := encryptionEnabled(s.Config)
+	if encrypted {
 		u.mu.Lock()
 		hasCrypt := u.cryptSections[s.ID]
 		u.mu.Unlock()
@@ -211,11 +212,15 @@ func (u *Uploader) remoteTargetPath(s client.Storage, websiteName, batchDir, fil
 	}
 	site := sanitizePathSegment(websiteName)
 
-	// S3：base_path 是 bucket 内 prefix，去掉两侧 /，然后 bucket + base + site + batch + file
+	// S3：base_path 是 bucket 内 prefix。非加密时 bucket 作为 path 第一段；
+	// 加密时 bucket 已放进 crypt remote 的 base（renderCryptSection：remote=bc_<id>:bucket），
+	// path 不能再带 bucket —— 否则 crypt 把 bucket 名一起加密，S3 把加密串当 bucket → object not found。
 	if s.Type == "s3" {
 		parts := []string{}
-		if b, ok := s.Config["bucket"].(string); ok && b != "" {
-			parts = append(parts, strings.Trim(b, "/"))
+		if !encrypted {
+			if b, ok := s.Config["bucket"].(string); ok && b != "" {
+				parts = append(parts, strings.Trim(b, "/"))
+			}
 		}
 		if base := strings.Trim(s.BasePath, "/"); base != "" {
 			parts = append(parts, base)

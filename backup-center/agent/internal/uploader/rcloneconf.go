@@ -295,9 +295,16 @@ func renderCryptSection(s client.Storage) (string, error) {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("[%s_c]\n", name))
 	b.WriteString("type = crypt\n")
-	// 必须带末尾冒号：remote 指向"另一个 remote 名"（bc_<id>:），冒号不可省；
-	// 省略会被 rclone 当成相对本地目录，导致加密上传落到 Agent 本地 cwd 而不是远端。
-	b.WriteString("remote = " + name + ":\n")
+	// remote 指向底层 remote 名，必须带冒号。S3 还要把 bucket 拼进来（remote = bc_<id>:bucket）：
+	// crypt 只能加密 bucket 之后的路径，bucket 名不能被加密，否则底层 S3 remote 会把加密后的
+	// 字符串当成 bucket 名去访问 → object not found。非 S3 无 bucket 概念，保持 bc_<id>:。
+	cryptRemote := name + ":"
+	if s.Type == "s3" {
+		if bk, ok := s.Config["bucket"].(string); ok && strings.Trim(bk, "/") != "" {
+			cryptRemote = name + ":" + strings.Trim(bk, "/")
+		}
+	}
+	b.WriteString("remote = " + cryptRemote + "\n")
 	b.WriteString("password = " + obscured + "\n")
 	b.WriteString("filename_encryption = " + encryptionFilenameMode(enc) + "\n")
 	b.WriteString(fmt.Sprintf("directory_name_encryption = %v\n", encryptionDirNameMode(enc)))
