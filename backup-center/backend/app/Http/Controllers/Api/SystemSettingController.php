@@ -8,6 +8,7 @@ use App\Models\SystemSetting;
 use App\Services\SystemBackupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class SystemSettingController extends Controller
 {
@@ -294,6 +295,12 @@ class SystemSettingController extends Controller
         $tmpFiles = [$confPath];
         try {
             $conf = $this->buildRcloneConfSection($remote, $s, $tmpFiles);
+            if ($conf === null) {
+                Log::warning('[system-backup] rclone obscure 失败，已跳过该存储（不降级明文）', [
+                    'storage_id' => $s->id, 'storage_name' => $s->name,
+                ]);
+                return [false, 'rclone obscure 失败，已跳过该存储（不降级明文）', ''];
+            }
             file_put_contents($confPath, $conf);
             chmod($confPath, 0600);
 
@@ -329,8 +336,11 @@ class SystemSettingController extends Controller
         }
     }
 
-    /** 生成一段 rclone.conf；跟 StorageController 里保持一致（避免相互依赖） */
-    private function buildRcloneConfSection(string $remote, Storage $s, array &$tempFiles): string
+    /**
+     * 生成一段 rclone.conf；跟 StorageController 里保持一致（避免相互依赖）
+     * ⚠️ obscure 失败时返回 null —— 调用方必须跳过该存储并告警，禁止把明文密码写进临时 conf
+     */
+    private function buildRcloneConfSection(string $remote, Storage $s, array &$tempFiles): ?string
     {
         $c = $s->config;
         $lines = ["[{$remote}]"];
@@ -340,7 +350,11 @@ class SystemSettingController extends Controller
                 $lines[] = 'host = ' . ($c['host'] ?? '');
                 if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) {
+                    $obscured = $this->rcloneObscure($c['password']);
+                    if ($obscured === null) return null;
+                    $lines[] = 'pass = ' . $obscured;
+                }
                 if (! empty($c['private_key'])) {
                     $keyPath = tempnam(sys_get_temp_dir(), 'sshkey_');
                     $tempFiles[] = $keyPath;
@@ -354,7 +368,11 @@ class SystemSettingController extends Controller
                 $lines[] = 'host = ' . ($c['host'] ?? '');
                 if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) {
+                    $obscured = $this->rcloneObscure($c['password']);
+                    if ($obscured === null) return null;
+                    $lines[] = 'pass = ' . $obscured;
+                }
                 if (! empty($c['tls'])) $lines[] = 'tls = true';
                 if (! empty($c['explicit_tls'])) $lines[] = 'explicit_tls = true';
                 if (! empty($c['no_check_certificate'])) $lines[] = 'no_check_certificate = true';
@@ -364,7 +382,11 @@ class SystemSettingController extends Controller
                 $lines[] = 'url = ' . ($c['url'] ?? '');
                 if (! empty($c['vendor'])) $lines[] = 'vendor = ' . $c['vendor'];
                 $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $lines[] = 'pass = ' . $this->rcloneObscure($c['password']);
+                if (! empty($c['password'])) {
+                    $obscured = $this->rcloneObscure($c['password']);
+                    if ($obscured === null) return null;
+                    $lines[] = 'pass = ' . $obscured;
+                }
                 break;
             case Storage::TYPE_S3:
                 $lines[] = 'type = s3';
@@ -381,10 +403,14 @@ class SystemSettingController extends Controller
         return implode("\n", $lines) . "\n";
     }
 
-    private function rcloneObscure(string $plain): string
+    /**
+     * rclone obscure：把明文密码转成 rclone 的混淆串（防误读的编码，不是加密）。
+     * 失败时返回 null —— 原实现退回明文会把密码裸写进临时 conf；现与 Go 端「跳过该存储」行为对齐。
+     */
+    private function rcloneObscure(string $plain): ?string
     {
         $out = trim((string) shell_exec('rclone obscure ' . escapeshellarg($plain) . ' 2>/dev/null'));
-        return $out !== '' ? $out : $plain;
+        return $out !== '' ? $out : null;
     }
 
     private function humanBytes(int $n): string
