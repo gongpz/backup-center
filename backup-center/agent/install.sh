@@ -13,6 +13,28 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# ---------- 传输安全（对齐 Center 端 C3 策略）----------
+# Agent 默认强制 https 连接 Center；若 BC_URL 是 http 且非本机回环，需 BC_ALLOW_HTTP=1 放行
+# （否则 config.Load 的 validateTransportSecurity 会直接拒绝启动）。这里按 BC_URL 自动判定并
+# 放行（同时写进 systemd unit），省去使用者手动记环境变量；http 会明文传输，故打印醒目警告。
+BC_URL_SCHEME=$(printf '%s' "${BC_URL%%://*}" | tr 'A-Z' 'a-z')
+BC_REST="${BC_URL#*://}"
+BC_URL_HOSTPORT="${BC_REST%%[/?]*}"
+BC_URL_HOSTNAME="${BC_URL_HOSTPORT%%:*}"
+if [ "$BC_URL_SCHEME" = "http" ]; then
+    case "$BC_URL_HOSTNAME" in
+        localhost|127.0.0.1|::1) : ;;  # 本机回环，C3 本就放行
+        *)
+            [ "${BC_ALLOW_HTTP:-}" = "1" ] || {
+                echo "[install] ⚠ Center 是 http://$BC_URL_HOSTNAME（非本机）：Agent 默认强制 https，" >&2
+                echo "         http 会让 Agent Token / 存储凭据 / 备份数据明文传输，已自动设置 BC_ALLOW_HTTP=1 放行。" >&2
+                echo "         生产环境请尽快给 Center 上 HTTPS（自签或 Let's Encrypt）。" >&2
+            }
+            export BC_ALLOW_HTTP=1
+            ;;
+    esac
+fi
+
 # ---------- 检测架构 ----------
 UNAME_M=$(uname -m)
 case "$UNAME_M" in
@@ -131,6 +153,13 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 echo "[install] 已写 systemd unit: $UNIT_FILE"
+
+# http 放行：把 BC_ALLOW_HTTP 注入 systemd unit，确保以服务方式运行也放行
+# （C3 在 config.Load 里校验，仅命令行 test 放行不够，服务进程同样需要该环境变量）
+if [ "${BC_ALLOW_HTTP:-}" = "1" ]; then
+    sed -i '/^\[Service\]/a Environment=BC_ALLOW_HTTP=1' "$UNIT_FILE"
+    echo "[install] 已在 systemd unit 设置 Environment=BC_ALLOW_HTTP=1（http 模式）"
+fi
 
 # ---------- 启用 + 启动 ----------
 systemctl daemon-reload
