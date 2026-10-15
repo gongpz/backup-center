@@ -448,12 +448,17 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 		start := time.Now()
 		slog.Info("触发一键同步扫描（强制清 seen map，全量重扫，含 scheduled 网站）", "id", cmd.ID)
 		scn.ClearSeen()
-		scn.ForceScanAll()
+		st := scn.ForceScanAll()
 		took := time.Since(start)
+		output := fmt.Sprintf("已完成一次全量扫描，用时 %.2fs：扫描 %d 个网站", took.Seconds(), st.Websites)
+		if st.Skipped > 0 {
+			output += fmt.Sprintf("（%d 个未配置备份目录已跳过）", st.Skipped)
+		}
+		output += fmt.Sprintf("，上报 %d 个文件，触发 %d 个上传", st.Files, st.Uploads)
 		_ = c.CommandResult(&client.CommandResultRequest{
 			CommandID: cmd.ID,
 			Status:    "success",
-			Output:    fmt.Sprintf("已完成一次全量扫描，用时 %.2fs", took.Seconds()),
+			Output:    output,
 		})
 
 	case "restore":

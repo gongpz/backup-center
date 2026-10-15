@@ -86,22 +86,40 @@ func (s *Scanner) ScanAll() {
 	}
 }
 
+// ScanStats 一次强制扫描的汇总（sync_now 用）：让 Center 侧看到「到底扫了什么」，
+// 避免用户点了同步却看不到任何记录、无法判断是没扫到还是网站没配备份目录。
+type ScanStats struct {
+	Websites int // 参与扫描的网站数
+	Skipped  int // 未配置备份目录（backup_paths 为空）而跳过的网站数
+	Files    int // 上报成功的备份文件数（含已存在记录的）
+	Uploads  int // 触发上传的文件数
+}
+
 // ForceScanAll 强制扫描所有网站（含 scheduled 模式）。sync_now 命令用这个。
-func (s *Scanner) ForceScanAll() {
+func (s *Scanner) ForceScanAll() ScanStats {
 	s.mu.Lock()
 	sites := make([]client.Website, len(s.sites))
 	copy(sites, s.sites)
 	s.mu.Unlock()
 
+	var st ScanStats
 	for _, w := range sites {
-		s.scanOne(w)
+		st.Websites++
+		if len(w.EffectivePaths()) == 0 {
+			st.Skipped++
+			continue
+		}
+		files, uploads := s.scanOne(w)
+		st.Files += files
+		st.Uploads += uploads
 	}
+	return st
 }
 
-func (s *Scanner) scanOne(w client.Website) {
+func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 	paths := w.EffectivePaths()
 	if len(paths) == 0 {
-		return
+		return 0, 0
 	}
 
 	for _, bp := range paths {
@@ -139,28 +157,31 @@ func (s *Scanner) scanOne(w client.Website) {
 				BackupAt:  info.ModTime().UTC().Format(time.RFC3339),
 				Status:    "success",
 			}
-			resp, err := s.client.Report(req)
-			if err != nil {
-				slog.Warn("上报失败", "website", w.Name, "file", filename, "err", err)
-				continue
-			}
-			s.markSeen(w.ID, filename)
+		resp, err := s.client.Report(req)
+		if err != nil {
+			slog.Warn("上报失败", "website", w.Name, "file", filename, "err", err)
+			continue
+		}
+		s.markSeen(w.ID, filename)
+		files++
 
-			if resp.Created {
-				slog.Info("发现新备份", "website", w.Name, "file", filename, "size", info.Size(), "log_id", resp.LogID)
-			} else {
-				slog.Debug("上报（已存在）", "website", w.Name, "file", filename)
-			}
+		if resp.Created {
+			slog.Info("发现新备份", "website", w.Name, "file", filename, "size", info.Size(), "log_id", resp.LogID)
+		} else {
+			slog.Debug("上报（已存在）", "website", w.Name, "file", filename)
+		}
 
-			// 触发上传（如果配了 uploader 和该网站有存储目标）
-			if s.uploader != nil && len(w.StorageIDs) > 0 {
-				logID := resp.LogID
-				storageIDs := append([]int64(nil), w.StorageIDs...)
-				backupAt := info.ModTime()
-				go s.uploader.ProcessBackup(logID, path, w.Name, backupAt, storageIDs)
-			}
+		// 触发上传（如果配了 uploader 和该网站有存储目标）
+		if s.uploader != nil && len(w.StorageIDs) > 0 {
+			logID := resp.LogID
+			storageIDs := append([]int64(nil), w.StorageIDs...)
+			backupAt := info.ModTime()
+			uploads++
+			go s.uploader.ProcessBackup(logID, path, w.Name, backupAt, storageIDs)
 		}
 	}
+	return files, uploads
+}
 }
 
 func (s *Scanner) wasSeen(websiteID int64, filename string) bool {

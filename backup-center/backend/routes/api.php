@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AgentCommandController;
 use App\Http\Controllers\Api\AgentController;
 use App\Http\Controllers\Api\AgentUpdateController;
 use App\Http\Controllers\Api\VersionController;
@@ -66,8 +67,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('websites', WebsiteController::class);
     Route::post('/websites/{website}/sync-now', [WebsiteController::class, 'syncNow']);
     Route::post('/websites/{website}/bind-root', [WebsiteController::class, 'bindRoot']);
-    Route::get('/websites/{website}/bind-status', [WebsiteController::class, 'bindStatus']);
     Route::post('/websites/{website}/self-backup', [WebsiteController::class, 'selfBackupNow']);
+
+    // 指令状态查询（绑定/同步/自主备份等下发后前端轮询执行结果）
+    Route::get('/agent-commands/{command}', [AgentCommandController::class, 'show']);
 
     // 系统一键备份（把 Backup Center 自己打包上传到强制备份存储）
     Route::post('/system/backup', [SystemSettingController::class, 'backupNow']);

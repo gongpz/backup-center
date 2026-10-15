@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Key, Download, CopyDocument, Position, Search, RefreshRight, CircleCheck } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
+import { commandsApi } from '@/api/commands'
 import { copyText } from '@/utils/clipboard'
 
 const props = defineProps({
@@ -20,6 +21,7 @@ const pollTimer = ref(null)
 const elapsed = ref(0)
 const tickTimer = ref(null)
 const failReason = ref('')
+const activeCommandId = ref(null)
 
 const form = reactive({
   mode: 'search', // search=Agent 有界搜索 / direct=直接校验路径
@@ -37,6 +39,7 @@ const resetState = () => {
   phase.value = props.website?.web_root ? 'done' : 'idle'
   elapsed.value = 0
   failReason.value = ''
+  activeCommandId.value = null
   form.mode = 'search'
   form.direct_path = ''
   form.search_bases = '/www/wwwroot'
@@ -84,10 +87,11 @@ const submit = async () => {
   phase.value = 'waiting'
   elapsed.value = 0
   try {
-    await websitesApi.bindRoot(props.website.id, {
+    const dispatch = await websitesApi.bindRoot(props.website.id, {
       direct_path: form.mode === 'direct' ? form.direct_path.trim() : null,
       search_bases: bases,
     })
+    activeCommandId.value = dispatch.command_id || null
     ElMessage.success('绑定指令已下发，等待 Agent 执行')
   } catch (_) {
     phase.value = 'idle'
@@ -111,13 +115,14 @@ const pollBindResult = async () => {
   } catch (_) { /* 轮询失败不打断，下一轮再试 */ }
   // Agent 已回传失败：直接显示真实原因（如密钥文件名不符），不用干等满超时
   try {
-    const res = await websitesApi.bindStatus(props.website.id)
-    const cmd = res.command
-    if (cmd && cmd.status === 'failed') {
-      stopTimers()
-      failReason.value = cmd.error || 'Agent 执行失败（未返回原因）'
-      phase.value = 'failed'
-      return
+    if (activeCommandId.value) {
+      const { command } = await commandsApi.get(activeCommandId.value)
+      if (command && command.status === 'failed') {
+        stopTimers()
+        failReason.value = command.error || 'Agent 执行失败（未返回原因）'
+        phase.value = 'failed'
+        return
+      }
     }
   } catch (_) { /* 同上 */ }
   if (elapsed.value >= timeoutSec.value) {

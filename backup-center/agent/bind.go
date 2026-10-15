@@ -15,6 +15,18 @@ import (
 // 用户把该文件放进网站根目录，Agent 据此定位/校验根目录。
 const bindFilePrefix = ".bc-bind-"
 
+// keyNameMatches 判断文件名是否为本次绑定的密钥文件。
+// 严格形态是 .bc-bind-<token>，但下载/上传链路（Windows 浏览器、部分网页面板）
+// 常把它改坏成 bc-bind-<token> 或 bc-bind-<token>.txt（丢开头小点、补 .txt）。
+// token 是 32 位随机串，这三种等价形态匹配不会造成跨网站误配。
+func keyNameMatches(name, keyName string) bool {
+	if name == keyName {
+		return true
+	}
+	bare := strings.TrimPrefix(keyName, ".")
+	return name == bare || name == bare+".txt"
+}
+
 // performBindRoot 根目录绑定：
 //   - direct_path：用户直接填根目录，Agent 校验密钥文件是否在该目录（快而可靠）
 //   - search_bases：用户在若干基址内让 Agent 有界搜索密钥文件（备选）
@@ -67,10 +79,20 @@ func verifyDirectRoot(dir, keyName string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", fmt.Errorf("目录不存在或不是目录: %s", dir)
 	}
-	if _, err := os.Stat(filepath.Join(abs, keyName)); err != nil {
-		return "", fmt.Errorf("未在该目录找到密钥文件 %s，请先把密钥文件放入网站根目录", keyName)
+	// 逐个比对（而非直接 stat 精确名）：接受下载/上传链路改坏的名字形态
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return "", fmt.Errorf("读取目录失败: %s: %v", dir, err)
 	}
-	return abs, nil
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if keyNameMatches(e.Name(), keyName) {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("未在该目录找到密钥文件 %s（丢开头小点、带 .txt 的变形也接受），请先把密钥文件放入网站根目录", keyName)
 }
 
 // searchBindFile 在给定基址内有界搜索密钥文件，返回其所在目录（第一个命中）。
@@ -95,24 +117,24 @@ func searchBindFile(bases []interface{}, keyName string) (string, error) {
 			if found != "" {
 				return filepath.SkipAll
 			}
-			if d.IsDir() {
-				if path != abs {
-					switch d.Name() {
-					case "proc", "sys", "dev", "node_modules", ".git":
-						return filepath.SkipDir
-					}
-					depth := strings.Count(filepath.Clean(path), string(os.PathSeparator)) - baseDepth
-					if depth >= maxDepth {
-						return filepath.SkipDir
-					}
+		if d.IsDir() {
+			if path != abs {
+				switch d.Name() {
+				case "proc", "sys", "dev", "node_modules", ".git":
+					return filepath.SkipDir
 				}
-				return nil
-			}
-			if d.Name() == keyName {
-				found = filepath.Dir(path)
-				return filepath.SkipAll
+				depth := strings.Count(filepath.Clean(path), string(os.PathSeparator)) - baseDepth
+				if depth >= maxDepth {
+					return filepath.SkipDir
+				}
 			}
 			return nil
+		}
+		if keyNameMatches(d.Name(), keyName) {
+			found = filepath.Dir(path)
+			return filepath.SkipAll
+		}
+		return nil
 		})
 		if found != "" {
 			return found, nil

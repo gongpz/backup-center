@@ -1,8 +1,9 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
+import { commandsApi } from '@/api/commands'
 import { serversApi } from '@/api/servers'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { humanize as humanizeSchedule } from '@/utils/schedule'
@@ -83,17 +84,49 @@ const onBindSaved = () => fetch()
 
 // 一键同步：触发所属 Agent 立即扫描 backup_paths，把未上传的文件推到各存储
 const syncingIds = ref(new Set())
+const syncPollTimer = ref(null)
+onBeforeUnmount(() => {
+  if (syncPollTimer.value) { clearInterval(syncPollTimer.value); syncPollTimer.value = null }
+})
 const syncNow = async (row) => {
   if (syncingIds.value.has(row.id)) return
   syncingIds.value = new Set([...syncingIds.value, row.id])
   try {
     const res = await websitesApi.syncNow(row.id)
     ElMessage.success(res.message || '已下发同步指令，最长 60 秒内 Agent 会执行')
+    pollSyncResult(res.command_id)
   } catch (_) { /* interceptor 弹错 */   } finally {
     const s = new Set(syncingIds.value)
     s.delete(row.id)
     syncingIds.value = s
   }
+}
+
+// 轮询同步指令结果：Agent 实际扫了几个网站、上报/上传多少文件，直接 toast 出来。
+// self 来源网站没配备份目录时也会说明「已跳过」，不再是点了按钮没有任何回音。
+const pollSyncResult = (cmdId) => {
+  if (!cmdId) return
+  if (syncPollTimer.value) clearInterval(syncPollTimer.value)
+  const deadline = Date.now() + 100000
+  syncPollTimer.value = setInterval(async () => {
+    try {
+      const { command } = await commandsApi.get(cmdId)
+      if (command && (command.status === 'success' || command.status === 'failed')) {
+        clearInterval(syncPollTimer.value)
+        syncPollTimer.value = null
+        if (command.status === 'success') {
+          ElMessage.success(command.output || '同步完成')
+          fetch()
+        } else {
+          ElMessage.error(`同步失败：${command.error || 'Agent 未返回原因'}`)
+        }
+      }
+    } catch (_) { /* 轮询失败不打断，下一轮再试 */ }
+    if (Date.now() >= deadline && syncPollTimer.value) {
+      clearInterval(syncPollTimer.value)
+      syncPollTimer.value = null
+    }
+  }, 4000)
 }
 
 // 立即自主备份（P3）：仅 self 来源网站显示；复用 websitesApi.selfBackup 下发指令
