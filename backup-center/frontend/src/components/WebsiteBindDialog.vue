@@ -19,6 +19,7 @@ const phase = ref('idle')
 const pollTimer = ref(null)
 const elapsed = ref(0)
 const tickTimer = ref(null)
+const failReason = ref('')
 
 const form = reactive({
   mode: 'search', // search=Agent 有界搜索 / direct=直接校验路径
@@ -35,10 +36,15 @@ const resetState = () => {
   stopTimers()
   phase.value = props.website?.web_root ? 'done' : 'idle'
   elapsed.value = 0
+  failReason.value = ''
   form.mode = 'search'
   form.direct_path = ''
   form.search_bases = '/www/wwwroot'
 }
+
+// 超时预算：搜索模式要 Agent 遍历整棵目录树（/www/wwwroot 级动辄数十万文件），
+// 叠加最长 60 秒的心跳等待，90 秒不够用；直接指定路径只做一次 stat，90 秒充裕。
+const timeoutSec = computed(() => (form.mode === 'search' ? 180 : 90))
 
 watch(() => props.modelValue, (v) => { if (v) resetState() }, { immediate: true })
 onBeforeUnmount(stopTimers)
@@ -103,8 +109,20 @@ const pollBindResult = async () => {
       return
     }
   } catch (_) { /* 轮询失败不打断，下一轮再试 */ }
-  if (elapsed.value >= 90) {
+  // Agent 已回传失败：直接显示真实原因（如密钥文件名不符），不用干等满超时
+  try {
+    const res = await websitesApi.bindStatus(props.website.id)
+    const cmd = res.command
+    if (cmd && cmd.status === 'failed') {
+      stopTimers()
+      failReason.value = cmd.error || 'Agent 执行失败（未返回原因）'
+      phase.value = 'failed'
+      return
+    }
+  } catch (_) { /* 同上 */ }
+  if (elapsed.value >= timeoutSec.value) {
     stopTimers()
+    failReason.value = ''
     phase.value = 'failed'
   }
 }
@@ -156,6 +174,9 @@ const close = () => emit('update:modelValue', false)
             <span class="key-alt-label">也可以在服务器上直接生成：</span>
             <code class="mono">cd 网站根目录 &amp;&amp; echo '{{ website.bind_token }}' &gt; {{ keyFileName }}</code>
           </div>
+          <p class="step-warn">
+            注意：部分工具（如 Windows 下载后经宝塔在线上传）会去掉文件名开头的小点或自动补上 <span class="mono">.txt</span>，导致名称不符。服务器上的最终文件名必须与上方完全一致——<b>以点开头、无扩展名</b>。拿不准时，建议直接用上面的命令在服务器上生成。
+          </p>
         </div>
 
         <!-- 第二步：定位方式 -->
@@ -201,14 +222,15 @@ const close = () => emit('update:modelValue', false)
         <div v-if="phase === 'waiting'" class="bind-state bind-state-wait">
           <el-icon class="bs-icon is-loading"><RefreshRight /></el-icon>
           <div class="bs-text">
-            <div class="bs-title">等待 Agent 执行（{{ elapsed }}s）</div>
-            <div class="bs-sub">指令已下发，Agent 心跳最长 60 秒内会执行；请确认密钥文件已放置到位。</div>
+            <div class="bs-title">等待 Agent 执行（{{ elapsed }}s / {{ timeoutSec }}s）</div>
+            <div class="bs-sub">指令已下发，Agent 心跳最长 60 秒内会执行；{{ form.mode === 'search' ? '大目录搜索可能需要额外时间，请耐心等待' : '请确认密钥文件已放置到位' }}。</div>
           </div>
         </div>
         <div v-else-if="phase === 'failed'" class="bind-state bind-state-fail">
           <div class="bs-text">
-            <div class="bs-title">等待超时（90 秒）</div>
-            <div class="bs-sub">请确认：① 密钥文件已放在根目录；② 服务器在线且 Agent 正常运行；③ 搜索目录填写正确。可修正后重新下发。</div>
+            <div class="bs-title">{{ failReason ? '绑定失败' : `等待超时（${timeoutSec} 秒）` }}</div>
+            <div v-if="failReason" class="bs-reason mono">{{ failReason }}</div>
+            <div class="bs-sub">请确认：① 密钥文件已放在根目录且名称完全一致；② 服务器在线且 Agent 正常运行；③ 搜索目录填写正确。可修正后重新下发。</div>
           </div>
         </div>
       </template>
@@ -284,6 +306,29 @@ const close = () => emit('update:modelValue', false)
 .mode-body .step-desc { margin-bottom: 8px; }
 .bases-input :deep(.el-textarea__inner),
 .direct-input :deep(.el-input__inner) { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 12px; }
+
+.step-warn {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--bc-warning);
+  background: var(--bc-warning-bg);
+  border: 1px solid var(--bc-warning-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.step-warn b { font-weight: 600; }
+.bs-reason {
+  font-size: 12px;
+  color: var(--bc-danger);
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bc-bg-inset);
+  border: 1px solid var(--bc-border-light);
+  border-radius: 6px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
 
 .bind-state {
   display: flex; align-items: flex-start; gap: 10px;

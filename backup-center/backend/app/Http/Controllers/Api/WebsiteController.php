@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\WebsiteResource;
+use App\Models\AgentCommand;
 use App\Models\Server;
 use App\Models\Website;
 use Illuminate\Http\JsonResponse;
@@ -225,6 +226,35 @@ class WebsiteController extends Controller
         return response()->json([
             'message'    => '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件',
             'command_id' => $cmd->id,
+        ]);
+    }
+
+    /**
+     * 查询该网站最新一条 bind_root 指令的状态（绑定弹窗轮询用）。
+     * 前端只轮询 web_root 无法区分「还在等 Agent」和「Agent 已报错」——失败时超时提示
+     * 永远是通用文案，真实原因（如密钥文件名不符）看不到。这里透出指令终态与 error。
+     */
+    public function bindStatus(Website $website): JsonResponse
+    {
+        $cmd = AgentCommand::where('server_id', $website->server_id)
+            ->where('type', AgentCommand::TYPE_BIND_ROOT)
+            ->where('params->website_id', $website->id)
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $cmd) {
+            return response()->json(['command' => null]);
+        }
+
+        return response()->json([
+            'command' => [
+                'id'            => $cmd->id,
+                'status'        => $cmd->status,
+                'error'         => $cmd->error,
+                'output'        => $cmd->output,
+                'dispatched_at' => optional($cmd->dispatched_at)->toIso8601String(),
+                'completed_at'  => optional($cmd->completed_at)->toIso8601String(),
+            ],
         ]);
     }
 
