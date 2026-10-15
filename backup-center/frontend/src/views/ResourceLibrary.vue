@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Delete, Refresh, CopyDocument, Link, EditPen } from '@element-plus/icons-vue'
 import { resourcePoolApi } from '@/api/resourcePools'
+import { copyText } from '@/utils/clipboard'
 
 const pools = ref([])
 const currentPoolId = ref(null)
@@ -60,8 +61,9 @@ const onFileSelected = async (e) => {
   } finally { uploading.value = false; uploadProgress.value = 0 }
 }
 const copyLink = async (url) => {
-  try { await navigator.clipboard.writeText(url); ElMessage.success('已复制到剪贴板') }
-  catch { ElMessage.warning('复制失败，请手动复制') }
+  const ok = await copyText(url)
+  if (ok) ElMessage.success('已复制到剪贴板')
+  else ElMessage.warning('复制失败，请手动复制')
 }
 const removeFile = async (f) => {
   try {

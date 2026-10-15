@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Key, Download, CopyDocument, Position, Search, RefreshRight, CircleCheck } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -43,12 +44,9 @@ watch(() => props.modelValue, (v) => { if (v) resetState() }, { immediate: true 
 onBeforeUnmount(stopTimers)
 
 const copyName = async () => {
-  try {
-    await navigator.clipboard.writeText(keyFileName.value)
-    ElMessage.success('密钥文件名已复制')
-  } catch (_) {
-    ElMessage.warning('复制失败，请手动选择文件名复制')
-  }
+  const ok = await copyText(keyFileName.value)
+  if (ok) ElMessage.success('密钥文件名已复制')
+  else ElMessage.warning('复制失败，请手动选择文件名复制')
 }
 
 const downloadKey = () => {

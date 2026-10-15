@@ -84,6 +84,14 @@ else
     done
 fi
 
+# 把 Agent 安装/卸载脚本也放进 agent-dist：一键安装命令 curl <center>/agent/install.sh
+# 由 nginx（location /agent/ → /var/www/agent，即 agent-dist）提供。之前只放了二进制、
+# 漏了这两个脚本，导致 /agent/install.sh 404。SKIP_AGENT 时 agent-dist 已存在，同样补上。
+cp -f "$BC/agent/install.sh"   "$BC/deploy/agent-dist/install.sh"
+cp -f "$BC/agent/uninstall.sh" "$BC/deploy/agent-dist/uninstall.sh"
+chmod 0755 "$BC/deploy/agent-dist/install.sh" "$BC/deploy/agent-dist/uninstall.sh"
+ok "install.sh / uninstall.sh → agent-dist"
+
 # ---------- 3) 打包 ----------
 log "3/3 打包 $OUT"
 rm -f "$OUT"

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CopyDocument, QuestionFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { copyText } from '@/utils/clipboard'
 
 const activeTab = ref('storage')
 
@@ -17,12 +18,9 @@ const typeChipClass = (type) => {
 }
 
 const copy = async (text) => {
-  try {
-    await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制')
-  } catch (_) {
-    ElMessage.error('复制失败，请手动选中复制')
-  }
+  const ok = await copyText(text)
+  if (ok) ElMessage.success('已复制')
+  else ElMessage.error('复制失败，请手动选中复制')
 }
 
 // 复用的命令片段

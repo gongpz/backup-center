@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, Refresh } from '@element-plus/icons-vue'
 import { serversApi } from '@/api/servers'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -75,12 +76,9 @@ const installCmd = computed(() => {
 const origin = computed(() => `${window.location.protocol}//${window.location.host}`)
 
 const copy = async (text) => {
-  try {
-    await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制')
-  } catch (_) {
-    ElMessage.error('复制失败，请手动复制')
-  }
+  const ok = await copyText(text)
+  if (ok) ElMessage.success('已复制')
+  else ElMessage.error('复制失败，请手动复制')
 }
 
 const regenerate = () => {
