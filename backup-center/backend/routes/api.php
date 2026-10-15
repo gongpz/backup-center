@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AgentController;
 use App\Http\Controllers\Api\AgentUpdateController;
+use App\Http\Controllers\Api\VersionController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BackupLogController;
 use App\Http\Controllers\Api\DashboardController;
@@ -19,6 +20,9 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // 首次安装：没有任何用户时创建管理员（系统自己判断，User 表非空即 403）
 Route::get('/auth/bootstrap-status', [AuthController::class, 'bootstrapStatus']);
 Route::post('/auth/bootstrap', [AuthController::class, 'bootstrap']);
+
+/* 部署包版本（构建时写入 backend/VERSION，公开可读，供页脚/健康检查展示真实版本） */
+Route::get('/version', [VersionController::class, 'show']);
 
 /* ---------- Agent 通信（Token via header, 不是 Sanctum） ---------- */
 Route::prefix('agent')->middleware('agent')->group(function () {

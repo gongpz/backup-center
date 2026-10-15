@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# 构建时由 scripts/build-release.sh 生成（部署包的版本信息，不入库）
+/VERSION

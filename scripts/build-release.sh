@@ -30,6 +30,33 @@ die() { printf "${C_RED}[错误]${C_RST} %s\n" "$*"; exit 1; }
 command -v node >/dev/null 2>&1 || die "需要 Node.js（用于构建前端）"
 command -v npm  >/dev/null 2>&1 || die "需要 npm（用于构建前端）"
 
+# ---------- 0) 写入版本信息 ----------
+# 该文件会被打进部署包，供一键部署脚本打印、后端 /api/version 暴露、前端页脚展示，
+# 解决"装了哪个版本看不出来"的问题（之前 latest 停在 v1.1.0、main 已领先却装不到）。
+log "0/3 写入版本信息（backend/VERSION）"
+SHORT_SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+FULL_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# 精确打在某个 tag 上（git describe --exact-match）→ 正式版本号；否则视为滚动构建
+TAG="$(git -C "$ROOT" describe --tags --exact-match 2>/dev/null || true)"
+if [ -n "$TAG" ]; then
+    BC_VERSION_VAL="$TAG"
+    BC_CHANNEL_VAL="release"
+else
+    BC_VERSION_VAL="main@$SHORT_SHA"
+    BC_CHANNEL_VAL="main"
+fi
+# 允许外部强制覆盖渠道（本地手动打包想标 release 时可用 BC_CHANNEL=release）
+BC_CHANNEL_VAL="${BC_CHANNEL:-$BC_CHANNEL_VAL}"
+cat > "$BC/backend/VERSION" <<EOF
+BC_VERSION=$BC_VERSION_VAL
+BC_COMMIT=$FULL_SHA
+BC_COMMIT_SHORT=$SHORT_SHA
+BC_BUILD_DATE=$BUILD_DATE
+BC_CHANNEL=$BC_CHANNEL_VAL
+EOF
+ok "backend/VERSION → $BC_VERSION_VAL（$BC_CHANNEL_VAL）"
+
 # ---------- 1) 前端 ----------
 log "1/3 构建前端"
 if [ -d "$BC/frontend/node_modules" ]; then

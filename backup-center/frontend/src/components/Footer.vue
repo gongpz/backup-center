@@ -17,9 +17,14 @@ const load = async () => {
   try {
     const d = await systemApi.get()
     if (d.footer_config) config.value = { ...config.value, ...d.footer_config }
-    // agent version from setting；system 版本这里用配置里的 latest_version
+    // Agent 版本（展示用静态值）
     versions.value.agent = 'v0.14.0'
-    versions.value.system = 'v1.1.0'
+  } catch (_) {}
+  // 系统版本：读取真实部署版本（构建时写入 backend/VERSION，经 /api/version 暴露）。
+  // 失败则保持为空，页脚版本块会自动隐藏，不会显示过期的硬编码值（如旧版写死的 v1.1.0）。
+  try {
+    const v = await http.get('/version').then(x => x.data)
+    if (v?.version) versions.value.system = v.version
   } catch (_) {}
   if (config.value.show_stats) {
     try {
@@ -71,8 +76,8 @@ defineExpose({ refresh: load })
       </div>
 
       <div class="footer-center">
-        <span v-if="config.show_versions" class="chip-info">
-          系统 {{ versions.system }} · Agent {{ versions.agent }}
+        <span v-if="config.show_versions && (versions.system || versions.agent)" class="chip-info">
+          <template v-if="versions.system">系统 {{ versions.system }}</template><template v-if="versions.system && versions.agent"> · </template><template v-if="versions.agent">Agent {{ versions.agent }}</template>
         </span>
         <span v-if="config.show_stats && stats" class="chip-info">
           {{ stats.servers }} 服务器（{{ stats.online_servers }} 在线）·

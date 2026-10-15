@@ -10,13 +10,24 @@
 # 想用自建镜像源拉部署包：
 #   curl -fsSL ... | BC_DEPLOY_URL=https://mirror.example.com/bc-deploy.tar.gz sudo -E bash
 #
+# 部署包渠道（默认 release 正式版；要装 main 分支最新未发布功能用 main）：
+#   curl -fsSL ... | BC_CHANNEL=main sudo -E bash
+#
 # 备用源可选（主源失败时才尝试，默认关闭）：
 #   curl -fsSL ... | BC_DEPLOY_URL_FALLBACK=https://mirror2.example.com/bc-deploy.tar.gz sudo -E bash
 #
 set -euo pipefail
 
 # ---------- 配置 ----------
-DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz}"
+# 部署包渠道：
+#   release = 正式发布（默认；releases/latest，即最新打 tag 的版本，如 v1.2.0）
+#   main    = 滚动构建（releases/download/bc-rolling，含 main 分支最新未发布功能，用于提前验证）
+BC_CHANNEL="${BC_CHANNEL:-release}"
+if [ "$BC_CHANNEL" = "main" ]; then
+    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/bc-rolling/bc-deploy.tar.gz}"
+else
+    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/latest/download/bc-deploy.tar.gz}"
+fi
 DEPLOY_URL_FALLBACK="${BC_DEPLOY_URL_FALLBACK:-}"
 TARGET_DIR="/opt/bc"
 
@@ -474,6 +485,15 @@ mkdir -p "$TARGET_DIR"
 tar -xzf /tmp/bc-download/bc-deploy.tar.gz -C "$TARGET_DIR"
 rm -rf /tmp/bc-download
 
+# 版本信息（构建时写入 backend/VERSION）：让安装者一眼看到装的是哪个版本，
+# 避免"装了旧版却不知道"——之前线上 latest 停在 v1.1.0、main 已领先 61 个提交却装不到就是教训。
+if [ -f "$TARGET_DIR/backend/VERSION" ]; then
+    BC_INSTALLED_VERSION="$( . "$TARGET_DIR/backend/VERSION"; echo "${BC_VERSION:-未知}" )"
+    log "部署包版本：$BC_INSTALLED_VERSION（渠道：$BC_CHANNEL）"
+else
+    warn "未找到版本文件 backend/VERSION，无法显示具体版本"
+fi
+
 if [ "$MODE" = "http" ]; then
     cp "$TARGET_DIR/deploy/nginx.http.conf" "$TARGET_DIR/deploy/nginx.conf"
 else
@@ -555,7 +575,7 @@ echo "  访问地址：$SCHEME://$BC_ACCESS$URL_PORT/"
 [ "$MODE" = "https-selfsigned" ] && echo "  ⚠  自签名证书：浏览器首次访问会警告，点'高级 → 继续访问'"
 echo "  首次访问：输入你要用的用户名 + 密码创建管理员"
 echo ""
-echo "  升级方式：重新跑本脚本（BC_FORCE=1）或从 GitHub Release 拉新版部署包"
+echo "  升级方式：重新跑本脚本（BC_FORCE=1）；要装最新未发布功能加 BC_CHANNEL=main"
 echo ""
 echo "  容器状态：docker ps | grep bc-"
 echo "  应用日志：docker logs -f bc-app"
