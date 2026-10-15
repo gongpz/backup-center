@@ -288,14 +288,24 @@ class AgentController extends Controller
         foreach ($mandatory as $s) $allStorages->put($s->id, $s);
 
         // 拉平返回 - 顶层给一份完整 storages 清单（含解密 config），网站里只放 ID 列表
-        $storagesOut = $allStorages->values()->map(fn ($s) => [
-            'id' => $s->id,
-            'name' => $s->name,
-            'type' => $s->type,
-            'is_mandatory' => (bool) $s->is_mandatory,
-            'base_path' => $s->base_path,
-            'config' => $s->config, // Attribute cast 自动解密
-        ])->values();
+        $storagesOut = $allStorages->values()->map(function ($s) {
+            $config = $s->config; // Attribute cast 自动解密
+            // T2（agent_local）：加密密钥由 Agent 本地管理（/etc/backup-agent/backup.key），
+            // 中心不保存也不下发密码 —— 下发前剥掉，Agent 改用本地密钥渲染 crypt section。
+            // center 模式原样下发（含密码），与现状"存储密码明文下发"同一信任域。
+            $enc = $config['encryption'] ?? [];
+            if (! empty($enc['enabled']) && ($enc['key_mode'] ?? 'center') === 'agent_local') {
+                unset($config['encryption']['password']);
+            }
+            return [
+                'id' => $s->id,
+                'name' => $s->name,
+                'type' => $s->type,
+                'is_mandatory' => (bool) $s->is_mandatory,
+                'base_path' => $s->base_path,
+                'config' => $config,
+            ];
+        })->values();
 
         $mandatoryIds = $mandatory->pluck('id')->all();
 

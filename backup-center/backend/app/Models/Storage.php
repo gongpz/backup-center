@@ -91,6 +91,11 @@ class Storage extends Model
                 $c[$key] = '••••••••';
             }
         }
+        // 加密密码（center 托管模式中心持有）同样打码，语义与上面几个字段一致：
+        // 前端编辑时回传 "••••••••" 即"不改"
+        if (! empty($c['encryption']['password'])) {
+            $c['encryption']['password'] = '••••••••';
+        }
         return $c;
     }
 }
