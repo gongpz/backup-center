@@ -371,14 +371,16 @@ class StorageController extends Controller
         }
 
         // 加密包裹层（rclone crypt）：encryption.enabled && key_mode=center 时中心持密码，
-        // 增渲染 [probe_<id>_c]（type=crypt, remote=probe_<id>, password=obscure(加密密码)）。
+        // 增渲染 [probe_<id>_c]（type=crypt, remote=probe_<id>:, password=obscure(加密密码)）。
         // agent_local 模式中心无密码，不渲染（探测只覆盖底层 remote）。
         $enc = $c['encryption'] ?? [];
         if (! empty($enc['enabled']) && ($enc['key_mode'] ?? self::ENC_KEY_MODE_CENTER) === self::ENC_KEY_MODE_CENTER) {
             $lines[] = '';
             $lines[] = "[{$remote}_c]";
             $lines[] = 'type = crypt';
-            $lines[] = 'remote = ' . $remote;
+            // 必须带末尾冒号：remote 指向"另一个 remote 名"（probe_<id>:），冒号不可省；
+            // 省略会被 rclone 当成相对本地目录，拼到后端 cwd（/var/www/html/public）下 mkdir，报 permission denied。
+            $lines[] = 'remote = ' . $remote . ':';
             $obscured = $this->rcloneObscure((string) ($enc['password'] ?? ''));
             if ($obscured === null) {
                 // 拿不到 obscure 值时绝不写明文：省略 password 行并告警，调用方跳过该存储

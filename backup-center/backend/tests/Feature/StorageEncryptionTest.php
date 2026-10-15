@@ -204,7 +204,11 @@ class StorageEncryptionTest extends TestCase
         [$conf] = $this->renderConf($center, 'probe_' . $center->id);
         $this->assertStringContainsString('[probe_' . $center->id . '_c]', $conf);
         $this->assertStringContainsString('type = crypt', $conf);
-        $this->assertStringContainsString('remote = probe_' . $center->id, $conf);
+        // 关键回归点：crypt remote 必须带末尾冒号（指向底层 remote 名 remote=probe_<id>:），
+        // 否则 rclone 会把 remote 名当成相对本地目录，拼到 cwd 下 mkdir → permission denied
+        $this->assertStringContainsString('remote = probe_' . $center->id . ':', $conf);
+        // 反向保证：绝不能出现"remote = probe_<id>" 后直接换行（无冒号 → 被 rclone 当成本地目录）
+        $this->assertStringNotContainsString('remote = probe_' . $center->id . "\n", $conf);
         $this->assertStringContainsString('filename_encryption = standard', $conf);
         $this->assertStringContainsString('directory_name_encryption = true', $conf);
         // 红线：obscure 拿不到值时宁缺密码行，也绝不写明文

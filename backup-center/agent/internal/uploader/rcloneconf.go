@@ -270,7 +270,7 @@ func writeKeyFile(remoteName, key string) (string, error) {
 //
 //	[bc_<id>_c]
 //	type = crypt
-//	remote = bc_<id>
+//	remote = bc_<id>:
 //	password = <obscure(加密密码)>
 //	filename_encryption = standard|off
 //	directory_name_encryption = true|false
@@ -295,7 +295,9 @@ func renderCryptSection(s client.Storage) (string, error) {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("[%s_c]\n", name))
 	b.WriteString("type = crypt\n")
-	b.WriteString("remote = " + name + "\n")
+	// 必须带末尾冒号：remote 指向"另一个 remote 名"（bc_<id>:），冒号不可省；
+	// 省略会被 rclone 当成相对本地目录，导致加密上传落到 Agent 本地 cwd 而不是远端。
+	b.WriteString("remote = " + name + ":\n")
 	b.WriteString("password = " + obscured + "\n")
 	b.WriteString("filename_encryption = " + encryptionFilenameMode(enc) + "\n")
 	b.WriteString(fmt.Sprintf("directory_name_encryption = %v\n", encryptionDirNameMode(enc)))
