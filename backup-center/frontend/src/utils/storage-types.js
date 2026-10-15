@@ -13,6 +13,48 @@ export const storageTypes = [
 export const typeMeta = Object.fromEntries(storageTypes.map((t) => [t.value, t]))
 
 /**
+ * 备份加密字段定义（跨类型通用，与 rclone crypt 包裹层对应）
+ * 存放在 storages.config.encryption，字段名与后端/Agent 契约一致，不得更改
+ * 字段类型：switch | select | password
+ */
+export const encryptionFields = [
+  { key: 'enabled', label: '备份加密', type: 'switch', default: false },
+  { key: 'key_mode', label: '密钥模式', type: 'select', default: 'center',
+    options: [
+      { value: 'center',      label: '中心托管',     desc: '密钥由中心托管并随配置下发至 Agent（与存储密码同信任级别）' },
+      { value: 'agent_local', label: 'Agent 本地密钥', desc: '密钥由你在 Agent 主机 /etc/backup-agent/backup.key 自行管理，中心不保存、不知晓' },
+    ]},
+  { key: 'password', label: '加密密码', type: 'password', required: false, placeholder: '留空表示不修改' },
+  { key: 'filename_encryption', label: '文件名加密', type: 'select', default: 'standard',
+    options: [
+      { value: 'standard', label: '标准加密' },
+      { value: 'off',      label: '不加密文件名' },
+    ]},
+  { key: 'directory_name_encryption', label: '目录名加密', type: 'switch', default: true },
+]
+
+/** encryption 块默认值（新增存储 / 重置表单时使用） */
+export const defaultEncryption = {
+  enabled: false,
+  key_mode: 'center',
+  password: '',
+  filename_encryption: 'standard',
+  directory_name_encryption: true,
+}
+
+/**
+ * 归一化服务端返回的 encryption 块：缺省字段补默认值；
+ * password 只透传服务端 safeConfig 掩码值（••••••••）或空串，永不明文回填
+ */
+export const normalizeEncryption = (enc) => ({
+  enabled: !!enc?.enabled,
+  key_mode: enc?.key_mode === 'agent_local' ? 'agent_local' : 'center',
+  password: enc?.password || '',
+  filename_encryption: enc?.filename_encryption === 'off' ? 'off' : 'standard',
+  directory_name_encryption: enc?.directory_name_encryption !== false,
+})
+
+/**
  * 每种类型的字段定义
  * 字段类型：text | password | number | select
  */

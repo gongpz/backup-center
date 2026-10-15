@@ -101,6 +101,28 @@ const randToken = (n = 32) => {
 const nextId = (key) => db.seq[key]++
 const findById = (list, id) => list.find((x) => String(x.id) === String(id))
 
+/* ---------- 存储加密（config.encryption）演示语义 ----------
+   与后端 Storage::safeConfig / StorageController 对齐：
+   - 列表/详情返回掩码形状：password 已设置则一律返回 ••••••••，永不明文下发
+   - 增/改时 password 为空或占位符 •••••••• = 不修改，保留库中已存值 */
+const ENC_PASSWORD_MASK = '••••••••'
+const ENC_DEFAULTS = { enabled: false, key_mode: 'center', password: '', filename_encryption: 'standard', directory_name_encryption: true }
+
+const safeStorageConfig = (config) => {
+  if (!config?.encryption) return config
+  const enc = { ...config.encryption }
+  if (enc.password) enc.password = ENC_PASSWORD_MASK
+  return { ...config, encryption: enc }
+}
+const safeStorage = (s) => (s ? { ...s, config: safeStorageConfig(s.config) } : s)
+const resolveEncryption = (enc, existing) => {
+  const next = { ...ENC_DEFAULTS, ...(enc || {}) }
+  if (!next.password || next.password === ENC_PASSWORD_MASK) {
+    next.password = existing?.password || ''
+  }
+  return next
+}
+
 const db = {
   // log 序号必须大于静态数据最大 id（15843）：P2 起静态记录直接写死 15823–15843，
   // 早期 seq=15833 会让预置自主备份日志与静态记录撞号（db.logs 出现重复 id，
@@ -132,8 +154,8 @@ const db = {
   ],
 
   storages: [
-    { id: 1, name: 'Hetzner 主存储', type: 'sftp', status: 'enabled', is_mandatory: true, quota_bytes: 500 * GB, used_bytes: 318 * GB, websites_count: 16, upload_count: 9820, base_path: '/backups/primary', last_test_status: 'ok', last_tested_at: mins(35), access_url: 'https://u12345.your-storagebox.de', remark: '欧洲主力存储盒', config: { host: 'u12345.your-storagebox.de', port: 23, user: 'u12345', password: '' } },
-    { id: 2, name: 'Backblaze B2', type: 's3', status: 'enabled', is_mandatory: false, quota_bytes: 1000 * GB, used_bytes: 286 * GB, websites_count: 18, upload_count: 7412, base_path: 'bc-backups', last_test_status: 'ok', last_tested_at: mins(120), access_url: '', remark: '异地对象存储', config: { endpoint: 'https://s3.us-west-000.backblazeb2.com', region: 'us-west-000', bucket: 'bc-backups', access_key_id: '000b2c3d4e5f6000', secret_access_key: '' } },
+    { id: 1, name: 'Hetzner 主存储', type: 'sftp', status: 'enabled', is_mandatory: true, quota_bytes: 500 * GB, used_bytes: 318 * GB, websites_count: 16, upload_count: 9820, base_path: '/backups/primary', last_test_status: 'ok', last_tested_at: mins(35), access_url: 'https://u12345.your-storagebox.de', remark: '欧洲主力存储盒', config: { host: 'u12345.your-storagebox.de', port: 23, user: 'u12345', password: '', encryption: { enabled: true, key_mode: 'agent_local', password: '', filename_encryption: 'standard', directory_name_encryption: true } } },
+    { id: 2, name: 'Backblaze B2', type: 's3', status: 'enabled', is_mandatory: false, quota_bytes: 1000 * GB, used_bytes: 286 * GB, websites_count: 18, upload_count: 7412, base_path: 'bc-backups', last_test_status: 'ok', last_tested_at: mins(120), access_url: '', remark: '异地对象存储', config: { endpoint: 'https://s3.us-west-000.backblazeb2.com', region: 'us-west-000', bucket: 'bc-backups', access_key_id: '000b2c3d4e5f6000', secret_access_key: '', encryption: { enabled: true, key_mode: 'center', password: 'b2-demo-enc-pass', filename_encryption: 'standard', directory_name_encryption: true } } },
     { id: 3, name: 'Nextcloud 异地', type: 'webdav', status: 'enabled', is_mandatory: false, quota_bytes: 300 * GB, used_bytes: 264 * GB, websites_count: 9, upload_count: 3180, base_path: '/remote.php/dav', last_test_status: 'failed', last_tested_at: mins(280), access_url: 'https://cloud.example.com', remark: '最近连接异常', config: { url: 'https://cloud.example.com/remote.php/dav', vendor: 'nextcloud', user: 'backup', password: '' } },
     { id: 4, name: '本地 NAS', type: 'ftp', status: 'disabled', is_mandatory: false, quota_bytes: 0, used_bytes: 96 * GB, websites_count: 0, upload_count: 640, base_path: '/volume1/backup', last_test_status: 'ok', last_tested_at: mins(1440), access_url: '', remark: '机房内网', config: { host: '10.0.0.9', port: 21, user: 'backup', password: '' } },
   ],
@@ -457,7 +479,8 @@ function buildDashboard(range) {
     count_trend: buckets.map((b) => ({ label: b.label, value: b.count })),
     size_trend: buckets.map((b) => ({ label: b.label, value: b.size })),
     recent_logs: db.logs.slice(0, 10),
-    storages: db.storages,
+    // 与后端一致：任何外发 shape 里的 encryption.password 都必须是掩码，永不明文
+    storages: db.storages.map(safeStorage),
   }
 }
 
@@ -686,8 +709,8 @@ const routes = [
     (!p.type || s.type === p.type)
     && (!p.status || s.status === p.status)
     && matchKeyword(p.keyword, s.name, s.remark)
-  )), p)],
-  ['get', /^\/storages\/(\d+)$/, (m) => ({ data: findById(db.storages, m[1]) || {} })],
+  )).map(safeStorage), p)],
+  ['get', /^\/storages\/(\d+)$/, (m) => ({ data: safeStorage(findById(db.storages, m[1])) || {} })],
   ['post', /^\/storages$/, (m, p, body) => {
     const s = {
       id: nextId('storage'),
@@ -704,16 +727,23 @@ const routes = [
       last_tested_at: null,
       access_url: body.access_url || '',
       remark: body.remark || '',
-      config: body.config || {},
+      config: { ...(body.config || {}), encryption: resolveEncryption(body.config?.encryption) },
     }
     db.storages.push(s)
-    return { data: s }
+    return { data: safeStorage(s) }
   }],
   ['put', /^\/storages\/(\d+)$/, (m, p, body) => {
     const s = findById(db.storages, m[1])
     if (!s) return { data: {} }
-    Object.assign(s, body || {})
-    return { data: s }
+    const next = { ...(body || {}) }
+    if (body?.config) {
+      // 对齐后端 normalizeConfig：请求没带 encryption 但库里有时以旧配置为准（避免 partial update 悄悄关掉加密）；
+      // 带了则以请求为准，password 留空/占位符 = 不修改
+      const incoming = body.config.encryption ?? s.config?.encryption
+      next.config = { ...body.config, encryption: resolveEncryption(incoming, s.config?.encryption) }
+    }
+    Object.assign(s, next)
+    return { data: safeStorage(s) }
   }],
   ['delete', /^\/storages\/(\d+)$/, (m) => { removeById(db.storages, m[1]); return { message: '已删除' } }],
   ['post', /^\/storages\/(\d+)\/test$/, (m) => {

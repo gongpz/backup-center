@@ -36,6 +36,8 @@ const doFetch = async () => {
     type: filters.type || undefined,
     status: filters.status || undefined,
     page: meta.current_page,
+    // 列表默认不下发 config；加密列需要 safeConfig 掩码版（enabled/key_mode 可用，password 永不明文）
+    with_config: 1,
   })
   list.value = res.data
   if (res.meta) {
@@ -253,6 +255,17 @@ const usageClass = (row) => {
           </template>
         </el-table-column>
 
+        <el-table-column label="加密" width="84">
+          <template #default="{ row }">
+            <span
+              v-if="row.config?.encryption?.enabled"
+              class="chip chip-enc"
+              :title="row.config.encryption.key_mode === 'agent_local' ? '密钥由 Agent 本地管理' : '密钥由中心托管'"
+            >已加密</span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+
         <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.access_url" link :icon="Link" @click="visitStorage(row)">访问</el-button>
@@ -279,7 +292,7 @@ const usageClass = (row) => {
 </template>
 
 <style scoped>
-/* 列序：1 名称/备注 2 类型 3 强制备份 4 目标路径 5 绑定网站 6 连接测试 7 存储资源 8 状态 9 操作(始终保留) */
+/* 列序：1 名称/备注 2 类型 3 强制备份 4 目标路径 5 绑定网站 6 连接测试 7 存储资源 8 状态 9 加密 10 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;
@@ -337,6 +350,7 @@ const usageClass = (row) => {
 }
 .chip-info { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 .chip-red  { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
+.chip-enc  { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
 
 .badge {
   display: inline-flex;

@@ -2,7 +2,7 @@
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { storagesApi } from '@/api/storages'
-import { storageTypes, typeFields } from '@/utils/storage-types'
+import { storageTypes, typeFields, encryptionFields, defaultEncryption, normalizeEncryption } from '@/utils/storage-types'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -27,6 +27,7 @@ const form = reactive({
   remark: '',
   access_url: '',
   config: {},
+  encryption: { ...defaultEncryption },
 })
 
 const UNIT_BYTES = { GB: 1024 ** 3, TB: 1024 ** 4 }
@@ -51,6 +52,13 @@ const decodeQuota = (bytes) => {
 }
 
 const currentFields = computed(() => typeFields[form.type] || [])
+
+const encryptionField = (key) => encryptionFields.find((f) => f.key === key)
+const keyModeOptions = computed(() => encryptionField('key_mode')?.options || [])
+const filenameEncryptionOptions = computed(() => encryptionField('filename_encryption')?.options || [])
+const passwordPlaceholder = computed(() => encryptionField('password')?.placeholder || '')
+// 当前密钥模式的说明（后端契约：center 中心托管并下发 / agent_local 中心不保存）
+const keyModeDesc = computed(() => keyModeOptions.value.find((o) => o.value === form.encryption.key_mode)?.desc || '')
 
 const rules = computed(() => {
   const r = {
@@ -77,6 +85,7 @@ const resetForm = () => {
     remark: '',
     access_url: '',
     config: {},
+    encryption: { ...defaultEncryption },
   })
   for (const f of typeFields.sftp) {
     if (f.default !== undefined) form.config[f.key] = f.default
@@ -108,7 +117,11 @@ watch(
     form.is_mandatory = !! props.storage.is_mandatory
     form.remark = props.storage.remark || ''
     form.access_url = props.storage.access_url || ''
-    form.config = { ...(props.storage.config || {}) }
+    // encryption 块从 config 拆出单独编辑；password 只透传服务端 safeConfig 的掩码值或空串
+    const incomingConfig = { ...(props.storage.config || {}) }
+    form.encryption = normalizeEncryption(incomingConfig.encryption)
+    delete incomingConfig.encryption
+    form.config = incomingConfig
     form.type = props.storage.type
   },
 )
@@ -118,6 +131,14 @@ watch(
   () => form.type,
   (nt, ot) => {
     if (nt !== ot && !isEdit.value) applyDefaultsForType()
+  },
+)
+
+// 文件名加密关闭时目录名加密无意义（后端同样拒绝该组合，422），跟随关掉避免提交即报错
+watch(
+  () => form.encryption.filename_encryption,
+  (v) => {
+    if (v === 'off') form.encryption.directory_name_encryption = false
   },
 )
 
@@ -137,7 +158,8 @@ const onSubmit = () => {
         is_mandatory: form.is_mandatory,
         remark: form.remark,
         access_url: form.access_url || null,
-        config: form.config,
+        // encryption 原样提交：password 为空或 •••••••• 占位符时由后端按「不修改」语义处理
+        config: { ...form.config, encryption: { ...form.encryption } },
       }
       const saved = isEdit.value
         ? await storagesApi.update(props.storage.id, payload)
@@ -212,6 +234,57 @@ const onSubmit = () => {
           <el-option v-for="o in f.options" :key="String(o.value)" :value="o.value" :label="o.label" />
         </el-select>
       </el-form-item>
+
+      <!-- 备份加密（所有类型通用，rclone crypt 包裹层） -->
+      <el-form-item label="备份加密">
+        <el-switch v-model="form.encryption.enabled" />
+        <span class="hint">开启后备份文件以加密形式上传至第三方存储（rclone crypt），云端仅存密文；恢复自动解密，不影响现有流程</span>
+      </el-form-item>
+
+      <template v-if="form.encryption.enabled">
+        <el-form-item label="密钥模式">
+          <el-select v-model="form.encryption.key_mode" style="width: 100%">
+            <!-- 选项内说明用内联样式：下拉 popper 会 teleport 到 body，scoped 样式不生效 -->
+            <el-option v-for="o in keyModeOptions" :key="o.value" :value="o.value" :label="o.label">
+              <div style="line-height: 1.5; padding: 2px 0">
+                <div style="font-weight: 500">{{ o.label }}</div>
+                <div style="font-size: 12px; color: var(--bc-text-secondary); white-space: normal">{{ o.desc }}</div>
+              </div>
+            </el-option>
+          </el-select>
+          <span v-if="keyModeDesc" class="hint">{{ keyModeDesc }}</span>
+        </el-form-item>
+
+        <el-form-item v-if="form.encryption.key_mode === 'center'" label="加密密码">
+          <el-input
+            v-model="form.encryption.password"
+            type="password"
+            show-password
+            :placeholder="passwordPlaceholder"
+          />
+        </el-form-item>
+
+        <el-form-item label="文件名加密">
+          <el-select v-model="form.encryption.filename_encryption" style="width: 100%">
+            <el-option
+              v-for="o in filenameEncryptionOptions"
+              :key="o.value"
+              :value="o.value"
+              :label="o.label"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="目录名加密">
+          <el-switch
+            v-model="form.encryption.directory_name_encryption"
+            :disabled="form.encryption.filename_encryption === 'off'"
+          />
+          <span v-if="form.encryption.filename_encryption === 'off'" class="hint">
+            需先选择标准文件名加密
+          </span>
+        </el-form-item>
+      </template>
 
       <el-form-item label="目标路径" prop="base_path">
         <el-input v-model="form.base_path" placeholder="备份文件的目标目录，可选（例如 /backups）" />
