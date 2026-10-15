@@ -264,9 +264,11 @@ const total = computed(() => meta.total)
         class="websites-table"
         style="width: 100%"
         row-key="id"
+        :header-cell-style="{ padding: '8px 6px' }"
+        :cell-style="{ padding: '8px 6px' }"
         empty-text="暂无网站 · 点击右上角添加"
       >
-        <el-table-column label="网站" min-width="190">
+        <el-table-column label="网站" min-width="170">
           <template #default="{ row }">
             <div class="cell-name">
               <div class="site-avatar">{{ (row.name || 'W').charAt(0).toUpperCase() }}</div>
@@ -278,7 +280,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="所属服务器" min-width="180">
+        <el-table-column label="所属服务器" min-width="140">
           <template #default="{ row }">
             <div v-if="row.server" class="server-cell">
               <span class="strong">{{ row.server.name }}</span>
@@ -292,7 +294,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="备份目录" min-width="220">
+        <el-table-column label="备份目录" min-width="170">
           <template #default="{ row }">
             <div v-if="row.backup_paths?.length" class="paths-cell">
               <div
@@ -309,7 +311,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="网站根目录" min-width="200">
+        <el-table-column label="网站根目录" min-width="160">
           <template #default="{ row }">
             <div v-if="row.web_root" class="root-cell">
               <span class="chip chip-cyan mono" :title="`绑定于 ${fmtFull(row.root_bound_at)}`">{{ row.web_root }}</span>
@@ -323,7 +325,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="最近备份" min-width="230">
+        <el-table-column label="最近备份" min-width="180">
           <template #default="{ row }">
             <div v-if="recentBackupsOf(row)?.length" class="recent-backups">
               <div
@@ -365,7 +367,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="备份计划" width="130">
+        <el-table-column label="备份计划" width="110">
           <template #default="{ row }">
             <span v-if="row.schedule" class="chip chip-cyan">
               {{ humanizeSchedule(row.schedule) }}
@@ -374,13 +376,13 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="保留" width="80">
+        <el-table-column label="保留" width="70">
           <template #default="{ row }">
             <span class="muted">{{ row.retention_days }} 天</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" width="90">
+        <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <span :class="['badge', statusMeta[row.status]?.cls]">
               {{ statusMeta[row.status]?.text }}
@@ -388,7 +390,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button
@@ -406,7 +408,7 @@ const total = computed(() => meta.total)
                 type="primary"
                 :loading="selfBackingIds.has(row.id)"
                 @click="selfBackupNow(row)"
-              >备份</el-button>
+              >自主备份</el-button>
               <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
