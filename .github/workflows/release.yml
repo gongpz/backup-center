@@ -39,6 +39,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: bc-deploy.tar.gz
+          make_latest: true
           generate_release_notes: true
 
       - name: 上传滚动包（main 最新，prerelease 可覆盖）
