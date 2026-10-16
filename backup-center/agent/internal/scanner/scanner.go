@@ -177,11 +177,11 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 			storageIDs := append([]int64(nil), w.StorageIDs...)
 			backupAt := info.ModTime()
 			uploads++
-			go s.uploader.ProcessBackup(logID, path, w.Name, backupAt, storageIDs)
-		}
+		go s.uploader.ProcessBackup(logID, path, w.Name, backupAt, storageIDs)
+	}
+	}
 	}
 	return files, uploads
-}
 }
 
 func (s *Scanner) wasSeen(websiteID int64, filename string) bool {
