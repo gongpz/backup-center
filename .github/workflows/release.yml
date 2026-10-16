@@ -42,12 +42,20 @@ jobs:
           make_latest: true
           generate_release_notes: true
 
-      - name: 上传滚动包（main 最新，prerelease 可覆盖）
+      # 滚动包用 gh 幂等重建，而不用 softprops 的 overwrite：
+      # overwrite 走的是「覆盖已存在 release 的同名 asset」路径，但 bc-rolling release
+      # 历史上从未创建成功过 → 找不到 release 就失败 → release 永远建不出来（先有鸡还是
+      # 先有蛋，导致 main 分支的 Release 运行长期红灯）。这里改成「删旧的 → 全新创建」，
+      # 无论 bc-rolling 是否已存在都能成功，且天然支持每次 push 覆盖。
+      - name: 上传滚动包（main 最新，prerelease，每次覆盖）
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag: bc-rolling
-          name: 滚动构建（main 最新）
-          prerelease: true
-          overwrite: true
-          files: bc-deploy.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release delete bc-rolling --yes 2>/dev/null || echo "→ 无旧滚动包，直接创建"
+          gh release create bc-rolling bc-deploy.tar.gz \
+            --target "${GITHUB_SHA}" \
+            --title "滚动构建（main 最新）" \
+            --prerelease \
+            --notes "main 分支最新提交自动构建的滚动包，随每次 push 覆盖更新。用于 BC_CHANNEL=main 提前验证尚未发布的改动。"
