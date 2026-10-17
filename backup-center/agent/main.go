@@ -26,7 +26,7 @@ import (
 	"github.com/gongpz/backup-center/agent/internal/uploader"
 )
 
-const AgentVersion = "0.14.0"
+const AgentVersion = "0.14.1"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
