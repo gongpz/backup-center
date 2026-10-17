@@ -515,6 +515,11 @@ class AgentController extends Controller
 
         $log->fill([
             'server_id'        => $server->id,
+            // filename 必须显式写入：幂等键改成 (website_id, full_path) 后，
+            // firstOrNew 不再带 filename，而该列 NOT NULL 且无默认值，
+            // 新建记录若缺这个字段，MySQL 严格模式会直接插入失败
+            //（Field 'filename' doesn't have a default value → Agent 上报 500 → 同步 0 文件）。
+            'filename'         => $data['filename'],
             'full_path'        => $fullPath,
             // 来源键：与迁移回填共用同一个纯函数，避免双份逻辑漂移。
             // 只放 fill()，绝不能进 firstOrNew() 的幂等键（幂等键是 website_id+full_path）。
