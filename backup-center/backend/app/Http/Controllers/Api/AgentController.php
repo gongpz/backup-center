@@ -337,6 +337,7 @@ class AgentController extends Controller
                     'backup_path' => $first['path'] ?? '',
                     'file_pattern' => $first['pattern'] ?? '*',
                     'retention_days' => $w->retention_days,
+                    'sync_mode' => $w->sync_mode,
                     'storage_ids' => $effectiveIds,
                     // 自主压缩（P3）所需：Agent 据此 tar 网站根目录 + 导出数据库。
                     // db_password 经 Website::dbPassword Attribute 解密后以明文下发（同 Storage.config 通道，
