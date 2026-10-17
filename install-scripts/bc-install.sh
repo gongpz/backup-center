@@ -20,14 +20,14 @@ set -euo pipefail
 
 # ---------- 配置 ----------
 # 部署包渠道：
-#   release = 正式发布（默认；当前钉到 v1.2.6：releases/download/v1.2.6，
+#   release = 正式发布（默认；当前钉到 v1.2.7：releases/download/v1.2.7，
 #            避开 GitHub 的 latest 标志未自动翻新的问题；发布新版时请把这里的版本号同步上调）
 #   main    = 滚动构建（releases/download/bc-rolling，含 main 分支最新未发布功能，用于提前验证）
 BC_CHANNEL="${BC_CHANNEL:-release}"
 if [ "$BC_CHANNEL" = "main" ]; then
     DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/bc-rolling/bc-deploy.tar.gz}"
 else
-    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/v1.2.6/bc-deploy.tar.gz}"
+    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/v1.2.7/bc-deploy.tar.gz}"
 fi
 DEPLOY_URL_FALLBACK="${BC_DEPLOY_URL_FALLBACK:-}"
 TARGET_DIR="/opt/bc"
