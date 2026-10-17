@@ -13,6 +13,9 @@
 # 部署包渠道（默认 release 正式版；要装 main 分支最新未发布功能用 main）：
 #   curl -fsSL ... | BC_CHANNEL=main sudo -E bash
 #
+# release 渠道会在运行时自动解析 GitHub 上的「最新正式版」，所以发新版后
+# 直接重跑本命令即可拿到最新版，不需要修改脚本、也不需要指定版本号。
+#
 # 备用源可选（主源失败时才尝试，默认关闭）：
 #   curl -fsSL ... | BC_DEPLOY_URL_FALLBACK=https://mirror2.example.com/bc-deploy.tar.gz sudo -E bash
 #
@@ -20,17 +23,45 @@ set -euo pipefail
 
 # ---------- 配置 ----------
 # 部署包渠道：
-#   release = 正式发布（默认；当前钉到 v1.2.7：releases/download/v1.2.7，
-#            避开 GitHub 的 latest 标志未自动翻新的问题；发布新版时请把这里的版本号同步上调）
+#   release = 正式发布（默认；运行时向 GitHub 解析「最新正式版」，不写死版本号，
+#              发新版无需改本脚本。解析失败时依次回退 releases/latest/download、BC_DEPLOY_URL）
 #   main    = 滚动构建（releases/download/bc-rolling，含 main 分支最新未发布功能，用于提前验证）
 BC_CHANNEL="${BC_CHANNEL:-release}"
+BC_REPO="${BC_REPO:-gongpz/backup-center}"
+TARGET_DIR="/opt/bc"
+
+# release 渠道：解析最新正式版 tag。
+# 为什么不写死版本号：写死后每次发版都要记得改脚本，漏改就会静默装到旧版
+# （历史上 latest 标志没自动翻新、用户装到 v1.1.0 而 main 已领先几十个提交，就是这个坑）。
+# 这里用 GitHub API 拿 releases/latest 的 tag_name，release.yml 已配 make_latest:true，
+# 标志随发版自动翻新，所以 API 结果始终指向真正最新的正式版。
+resolve_latest_release_tag() {
+    curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/repos/${BC_REPO}/releases/latest" 2>/dev/null \
+    | grep -m1 '"tag_name"' \
+    | cut -d'"' -f4
+}
+
 if [ "$BC_CHANNEL" = "main" ]; then
-    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/bc-rolling/bc-deploy.tar.gz}"
+    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/${BC_REPO}/releases/download/bc-rolling/bc-deploy.tar.gz}"
 else
-    DEPLOY_URL_PRIMARY="${BC_DEPLOY_URL:-https://github.com/gongpz/backup-center/releases/download/v1.2.7/bc-deploy.tar.gz}"
+    # 按优先级构造候选源列表：解析出的 tag → releases/latest/download → 用户自定义 BC_DEPLOY_URL
+    # 注意 || true：本脚本开了 set -euo pipefail，pipefail 下 curl/grep 任一失败都会让整条管道
+    # 返回非零，进而触发 set -e 直接终止脚本 —— 那样 API 一抖动就崩，走不到下面的回退分支。
+    # 这里显式吞掉失败、返回空串，交由 if 判断走回退。
+    BC_LATEST_TAG="$(resolve_latest_release_tag || true)"
+    DEPLOY_URL_PRIMARY=""
+    if [ -n "$BC_LATEST_TAG" ]; then
+        DEPLOY_URL_PRIMARY="https://github.com/${BC_REPO}/releases/download/${BC_LATEST_TAG}/bc-deploy.tar.gz"
+        BC_RESOLVED_TAG="$BC_LATEST_TAG"
+    else
+        # API 被限流/网络抖动时回退 latest/download（release.yml 已保证 latest 指向最新正式版）
+        DEPLOY_URL_PRIMARY="https://github.com/${BC_REPO}/releases/latest/download/bc-deploy.tar.gz"
+        BC_RESOLVED_TAG=""
+    fi
+    [ -n "${BC_DEPLOY_URL:-}" ] && DEPLOY_URL_PRIMARY="$BC_DEPLOY_URL"
 fi
 DEPLOY_URL_FALLBACK="${BC_DEPLOY_URL_FALLBACK:-}"
-TARGET_DIR="/opt/bc"
 
 # 端口默认值（必须在这里初始化：LXC 兼容检测会引用，set -u 下未定义会直接退出）
 BC_HTTP_PORT="${BC_HTTP_PORT:-}"
@@ -217,6 +248,9 @@ echo "  访问地址：$SCHEME://$BC_ACCESS/"
 echo "  证书模式：$MODE"
 [ "$MODE" = "https-le" ] && echo "  证书邮箱：$BC_EMAIL"
 echo "  部署包源：$DEPLOY_URL_PRIMARY"
+if [ "$BC_CHANNEL" = "release" ] && [ -n "${BC_RESOLVED_TAG:-}" ]; then
+    echo "  目标版本：${BC_RESOLVED_TAG}（GitHub 最新正式版）"
+fi
 echo "  安装路径：$TARGET_DIR"
 printf "${C_GRN}────────────────────────────────────────${C_RST}\n"
 
@@ -491,6 +525,14 @@ rm -rf /tmp/bc-download
 if [ -f "$TARGET_DIR/backend/VERSION" ]; then
     BC_INSTALLED_VERSION="$( . "$TARGET_DIR/backend/VERSION"; echo "${BC_VERSION:-未知}" )"
     log "部署包版本：$BC_INSTALLED_VERSION（渠道：$BC_CHANNEL）"
+
+    # 闭环校验：release 渠道若解析出了目标 tag，确认包里版本与之一致。
+    # 不一致说明下到的不是最新包（例如 CDN 缓存、镜像源滞后），必须让用户知道。
+    if [ "$BC_CHANNEL" = "release" ] && [ -n "${BC_RESOLVED_TAG:-}" ] \
+       && [ "$BC_INSTALLED_VERSION" != "$BC_RESOLVED_TAG" ]; then
+        warn "版本校验不通过：目标是 $BC_RESOLVED_TAG，实际装到 $BC_INSTALLED_VERSION"
+        warn "可能是 CDN 缓存或镜像源滞后。请重跑本命令，或用 BC_DEPLOY_URL 指定自建源。"
+    fi
 else
     warn "未找到版本文件 backend/VERSION，无法显示具体版本"
 fi
@@ -576,7 +618,8 @@ echo "  访问地址：$SCHEME://$BC_ACCESS$URL_PORT/"
 [ "$MODE" = "https-selfsigned" ] && echo "  ⚠  自签名证书：浏览器首次访问会警告，点'高级 → 继续访问'"
 echo "  首次访问：输入你要用的用户名 + 密码创建管理员"
 echo ""
-echo "  升级方式：重新跑本脚本（BC_FORCE=1）；要装最新未发布功能加 BC_CHANNEL=main"
+echo "  升级方式：重跑本命令（BC_FORCE=1）即自动装 GitHub 最新正式版；"
+echo "            要装 main 未发布内容加 BC_CHANNEL=main；随时可查当前版本：cat /opt/bc/backend/VERSION"
 echo ""
 echo "  容器状态：docker ps | grep bc-"
 echo "  应用日志：docker logs -f bc-app"
