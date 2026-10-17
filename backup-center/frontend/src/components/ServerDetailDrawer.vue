@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CopyDocument, Refresh } from '@element-plus/icons-vue'
+import { CopyDocument, Refresh, Upload, Loading } from '@element-plus/icons-vue'
 import { serversApi } from '@/api/servers'
 import { copyText } from '@/utils/clipboard'
 
@@ -58,10 +58,71 @@ const installCmdMirrorR2 = computed(() => {
 watch(
   () => props.modelValue,
   (v) => {
-    if (v) load()
+    if (v) { load(); loadLatestVersion() }
     else detail.value = null
   },
 )
+
+// ---------- Agent 升级（与列表页一致） ----------
+const latestVersion = ref('')
+const latestVersionError = ref(false)
+const dispatchingIds = ref(new Set())
+
+const loadLatestVersion = async () => {
+  latestVersionError.value = false
+  try {
+    const res = await serversApi.agentLatestVersion()
+    latestVersion.value = res.version || ''
+  } catch (_) {
+    latestVersionError.value = true
+    // 静默失败会让升级入口隐身，用户会以为该机器已是最新版
+    console.warn('获取最新 Agent 版本失败，详情页升级按钮已隐藏')
+  }
+}
+
+const isUpgrading = (d) => {
+  const c = d?.pending_agent_command
+  return c && (c.status === 'pending' || c.status === 'dispatched')
+}
+const isAgentOutdated = (d) =>
+  d?.connect_type === 'agent' &&
+  d?.status === 'online' &&
+  !!latestVersion.value &&
+  d?.agent_version &&
+  d.agent_version !== latestVersion.value &&
+  !isUpgrading(d)
+
+// 下发后加密轮询，让用户实时看到"升级中 → 完成/失败"
+const pollAfterDispatch = () => {
+  ;[5000, 15000, 30000, 60000, 90000].forEach((delay) => {
+    setTimeout(() => load().catch(() => {}), delay)
+  })
+}
+
+const dispatchUpdate = (d) => {
+  if (!d || dispatchingIds.value.has(d.id)) return
+  ElMessageBox.confirm(
+    `确认给"${d.name}"下发升级到 v${latestVersion.value}？Agent 将在 60 秒内收到并执行，期间会短暂重启。\n\n注意：Agent 版本 < v0.7.0 的老机器不支持远程升级，需要 SSH 到目标机器手动执行 backup-agent update 或重装。`,
+    '升级 Agent',
+    { type: 'warning', confirmButtonText: '下发', cancelButtonText: '取消' },
+  )
+    .then(async () => {
+      const newSet = new Set(dispatchingIds.value)
+      newSet.add(d.id)
+      dispatchingIds.value = newSet
+      try {
+        const res = await serversApi.dispatchAgentUpdate(d.id)
+        ElMessage.success(res.message || '已下发，请关注升级进度')
+        await load()
+        pollAfterDispatch()
+      } catch (_) { /* 拦截器处理 */ } finally {
+        const s = new Set(dispatchingIds.value)
+        s.delete(d.id)
+        dispatchingIds.value = s
+      }
+    })
+    .catch(() => {})
+}
 
 // 通用安装命令（境外机器 / Center 本地 —— 走 Center 源）
 const installCmd = computed(() => {
@@ -153,7 +214,36 @@ const usageClass = (d) => {
       <template v-if="detail.connect_type === 'agent'">
         <div class="section-title">Agent 信息</div>
         <div class="kv-grid">
-          <div class="kv"><div class="k">Agent 版本</div><div class="v">{{ detail.agent_version || '—' }}</div></div>
+          <div class="kv kv-version">
+            <div class="k">Agent 版本</div>
+            <div class="v ver-line">
+              <span>{{ detail.agent_version || '—' }}</span>
+              <span
+                v-if="isUpgrading(detail)"
+                class="upg-chip"
+                :title="`升级中 → v${detail.pending_agent_command.to_version}`"
+              >
+                <el-icon class="upg-spin"><Loading /></el-icon>
+                升级中 v{{ detail.pending_agent_command.to_version }}
+              </span>
+              <el-button
+                v-else-if="isAgentOutdated(detail)"
+                size="small"
+                type="primary"
+                :icon="Upload"
+                :loading="dispatchingIds.has(detail.id)"
+                :disabled="dispatchingIds.has(detail.id)"
+                @click="dispatchUpdate(detail)"
+              >升级</el-button>
+              <el-button
+                v-else-if="latestVersionError"
+                size="small"
+                text
+                type="danger"
+                @click="loadLatestVersion"
+              >版本获取失败·重试</el-button>
+            </div>
+          </div>
           <div class="kv"><div class="k">主机名</div><div class="v">{{ detail.hostname || '—' }}</div></div>
           <div class="kv"><div class="k">内核</div><div class="v">{{ detail.kernel || '—' }}</div></div>
           <div class="kv"><div class="k">架构</div><div class="v">{{ detail.arch || '—' }}</div></div>
@@ -323,6 +413,36 @@ const usageClass = (d) => {
 .kv-full { grid-column: 1 / -1; }
 .kv .k { font-size: 12px; color: var(--bc-text-secondary); margin-bottom: 2px; }
 .kv .v { font-size: 13px; color: var(--bc-text-primary); font-weight: 500; word-break: break-all; }
+
+/* 详情页 Agent 版本行：版本 + 升级按钮 / 升级中 chip（与列表页一致） */
+.ver-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.upg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bc-primary-light);
+  color: var(--bc-primary);
+  border: 1px solid var(--bc-primary-100);
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+}
+.upg-spin {
+  animation: upg-rotate 1s linear infinite;
+  font-size: 12px;
+}
+@keyframes upg-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 .badge {
   display: inline-flex;
