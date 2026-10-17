@@ -55,26 +55,55 @@ const overallPct = computed(() => {
   return Math.round((totalUsed.value / totalQuota.value) * 100)
 })
 
-// 顶部段：每段宽度 = 该 quota / 全部 quota 之和
+/**
+ * 顶部比例线的基准宽度：
+ *   - 配了配额 → 用配额（段宽 = 该存储容量占总容量的比例，深色 = 已用占比）
+ *   - 没配额   → 用已用空间（段宽 = 该存储已用占总已用的比例，整段为深色）
+ * 这样即使所有存储都没设配额，比例线依然可见，不会整条消失。
+ */
+const totalBasis = computed(() =>
+  ordered.value.reduce(
+    (s, p) =>
+      s +
+      (Number(p.quota_bytes) > 0
+        ? Number(p.quota_bytes)
+        : Math.max(0, Number(p.used_bytes || 0))),
+    0,
+  ),
+)
+const totalUsedAll = computed(() =>
+  ordered.value.reduce((s, p) => s + Math.max(0, Number(p.used_bytes || 0)), 0),
+)
+
+// 顶部段：每段宽度 = 该基准 / 全部基准之和
 const segments = computed(() => {
-  const total = totalQuota.value
+  const total = totalBasis.value
   if (!total) return []
-  return quoted.value.map((s) => {
-    const quota = Number(s.quota_bytes || 0)
-    const used = Number(s.used_bytes || 0)
-    const pct = (quota / total) * 100
-    const usedPct = quota > 0 ? Math.min(100, (used / quota) * 100) : 0
-    return {
-      id: s.id,
-      name: s.name,
-      quota,
-      used,
-      pct,
-      usedPct,
-      baseColor: s._color.base,
-      darkColor: s._color.dark,
-    }
-  })
+  return ordered.value
+    .filter(
+      (s) =>
+        (Number(s.quota_bytes) > 0
+          ? Number(s.quota_bytes)
+          : Math.max(0, Number(s.used_bytes || 0))) > 0,
+    )
+    .map((s) => {
+      const quota = Number(s.quota_bytes || 0)
+      const used = Math.max(0, Number(s.used_bytes || 0))
+      const basis = quota > 0 ? quota : used
+      const pct = (basis / total) * 100
+      const usedPct = quota > 0 ? Math.min(100, (used / quota) * 100) : 100
+      return {
+        id: s.id,
+        name: s.name,
+        quota,
+        used,
+        pct,
+        usedPct,
+        hasQuota: quota > 0,
+        baseColor: s._color.base,
+        darkColor: s._color.dark,
+      }
+    })
 })
 
 const quotaPct = (p) => {
@@ -102,6 +131,9 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
           <template v-if="totalQuota > 0">
             · 总容量 {{ fmtBytes(totalQuota) }} · 已用 {{ fmtBytes(totalUsed) }}（{{ overallPct }}%）
           </template>
+          <template v-else-if="totalUsedAll > 0">
+            · 总已用 {{ fmtBytes(totalUsedAll) }}（各存储未设配额）
+          </template>
         </div>
       </div>
     </div>
@@ -112,7 +144,7 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
     </div>
 
     <template v-else>
-      <!-- 堆叠段条：仅在至少有一个存储配了 quota 时展示 -->
+      <!-- 堆叠段条：只要任一存储有容量或已用空间就展示（没配额时按已用空间比例） -->
       <div v-if="segments.length > 0" class="stack-wrap">
         <div class="stack-bar">
           <div
@@ -120,7 +152,9 @@ const uploadTotal = (p) => Number(p.upload_count || 0)
             :key="seg.id"
             class="stack-seg"
             :style="{ width: seg.pct + '%', backgroundColor: seg.baseColor }"
-            :title="`${seg.name}：${fmtBytes(seg.used)} / ${fmtBytes(seg.quota)}（${Math.round(seg.usedPct)}%）`"
+            :title="seg.hasQuota
+              ? `${seg.name}：${fmtBytes(seg.used)} / ${fmtBytes(seg.quota)}（${Math.round(seg.usedPct)}%）`
+              : `${seg.name}：已用 ${fmtBytes(seg.used)}（占已用总量 ${seg.pct.toFixed(1)}%）`"
           >
             <div
               class="stack-seg-used"

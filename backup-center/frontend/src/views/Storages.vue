@@ -169,7 +169,7 @@ const usageClass = (row) => {
         row-key="id"
         empty-text="暂无存储 · 点击右上角添加"
       >
-        <el-table-column label="名称 / 备注" min-width="180">
+        <el-table-column label="名称 / 备注" min-width="150">
           <template #default="{ row }">
             <div class="cell-name">
               <div class="storage-icon" :style="{ background: typeMeta[row.type]?.color + '15', color: typeMeta[row.type]?.color }">
@@ -220,7 +220,7 @@ const usageClass = (row) => {
           </template>
         </el-table-column>
 
-        <el-table-column label="存储资源" min-width="200">
+        <el-table-column label="存储资源" min-width="170">
           <template #default="{ row }">
             <div v-if="row.quota_bytes" class="quota-cell">
               <div class="quota-row">
@@ -255,7 +255,7 @@ const usageClass = (row) => {
           </template>
         </el-table-column>
 
-        <el-table-column label="加密" width="84">
+        <el-table-column label="加密" width="110">
           <template #default="{ row }">
             <span
               v-if="row.config?.encryption?.enabled"
@@ -266,7 +266,7 @@ const usageClass = (row) => {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.access_url" link :icon="Link" @click="visitStorage(row)">访问</el-button>
             <el-button link :icon="Connection" :loading="testing[row.id]" @click="test(row)">测试</el-button>

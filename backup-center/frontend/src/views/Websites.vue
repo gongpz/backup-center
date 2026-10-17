@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box, Document } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
 import { commandsApi } from '@/api/commands'
 import { serversApi } from '@/api/servers'
@@ -81,6 +81,15 @@ const openBind = (row) => {
   bindOpen.value = true
 }
 const onBindSaved = () => fetch()
+
+/* 详情弹框：把「所属服务器 / 备份目录 / 网站根目录」整合到操作栏点击查看，
+   避免这三列把表格撑得过宽导致内容被遮挡 */
+const detailOpen = ref(false)
+const detailRow = ref(null)
+const openDetail = (row) => {
+  detailRow.value = row
+  detailOpen.value = true
+}
 
 // 一键同步：触发所属 Agent 立即扫描 backup_paths，把未上传的文件推到各存储
 const syncingIds = ref(new Set())
@@ -268,7 +277,7 @@ const total = computed(() => meta.total)
         :cell-style="{ padding: '8px 6px' }"
         empty-text="暂无网站 · 点击右上角添加"
       >
-        <el-table-column label="网站" min-width="170">
+        <el-table-column label="网站" min-width="200">
           <template #default="{ row }">
             <div class="cell-name">
               <div class="site-avatar">{{ (row.name || 'W').charAt(0).toUpperCase() }}</div>
@@ -280,52 +289,9 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="所属服务器" min-width="140">
-          <template #default="{ row }">
-            <div v-if="row.server" class="server-cell">
-              <span class="strong">{{ row.server.name }}</span>
-              <span
-                class="chip"
-                :class="row.server.connect_type === 'agent' ? 'chip-blue' : 'chip-purple'"
-              >
-                {{ row.server.connect_type === 'agent' ? 'Agent' : 'SSH' }}
-              </span>
-            </div>
-          </template>
-        </el-table-column>
 
-        <el-table-column label="备份目录" min-width="170">
-          <template #default="{ row }">
-            <div v-if="row.backup_paths?.length" class="paths-cell">
-              <div
-                v-for="(bp, idx) in row.backup_paths"
-                :key="idx"
-                class="paths-row"
-              >
-                <span class="chip chip-blue" :title="bp.label || `目录${idx + 1}`">{{ bp.label || `目录${idx + 1}` }}</span>
-                <span class="chip chip-purple mono" :title="bp.path">{{ pathBasename(bp.path) }}</span>
-                <span v-if="bp.pattern && bp.pattern !== '*'" class="chip chip-cyan" :title="bp.pattern">{{ bp.pattern }}</span>
-              </div>
-            </div>
-            <span v-else class="muted">未配置</span>
-          </template>
-        </el-table-column>
 
-        <el-table-column label="网站根目录" min-width="160">
-          <template #default="{ row }">
-            <div v-if="row.web_root" class="root-cell">
-              <span class="chip chip-cyan mono" :title="`绑定于 ${fmtFull(row.root_bound_at)}`">{{ row.web_root }}</span>
-            </div>
-            <span
-              v-else-if="row.backup_source === 'self'"
-              class="badge warn"
-              title="自主压缩需要网站根目录，请先通过操作列「绑定」设置"
-            >未绑定</span>
-            <span v-else class="muted">未绑定</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="最近备份" min-width="180">
+        <el-table-column label="最近备份" min-width="200">
           <template #default="{ row }">
             <div v-if="recentBackupsOf(row)?.length" class="recent-backups">
               <div
@@ -390,9 +356,10 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
+              <el-button link :icon="Document" @click="openDetail(row)">详情</el-button>
               <el-button
                 v-if="row.backup_source !== 'self'"
                 link
@@ -430,11 +397,60 @@ const total = computed(() => meta.total)
 
     <WebsiteFormDialog v-model="formOpen" :website="editing" @saved="onSaved" />
     <WebsiteBindDialog v-model="bindOpen" :website="bindingWebsite" @saved="onBindSaved" />
+
+    <el-dialog v-model="detailOpen" title="网站详情" width="560px" append-to-body>
+      <div v-if="detailRow" class="detail-body">
+        <div class="detail-row">
+          <span class="detail-label">所属服务器</span>
+          <span class="detail-value">
+            <template v-if="detailRow.server">
+              <span class="strong">{{ detailRow.server.name }}</span>
+              <span
+                class="chip"
+                :class="detailRow.server.connect_type === 'agent' ? 'chip-blue' : 'chip-purple'"
+              >{{ detailRow.server.connect_type === 'agent' ? 'Agent' : 'SSH' }}</span>
+            </template>
+            <span v-else class="muted">—</span>
+          </span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">备份目录</span>
+          <span class="detail-value">
+            <template v-if="detailRow.backup_paths?.length">
+              <div
+                v-for="(bp, idx) in detailRow.backup_paths"
+                :key="idx"
+                class="detail-paths-row"
+              >
+                <span class="chip chip-blue">{{ bp.label || `目录${idx + 1}` }}</span>
+                <span class="chip chip-purple mono">{{ pathBasename(bp.path) }}</span>
+                <span v-if="bp.pattern && bp.pattern !== '*'" class="chip chip-cyan">{{ bp.pattern }}</span>
+                <span class="muted mono detail-full">{{ bp.path }}</span>
+              </div>
+            </template>
+            <span v-else class="muted">未配置</span>
+          </span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">网站根目录</span>
+              <span class="detail-value">
+            <template v-if="detailRow.web_root">
+              <span class="chip chip-cyan mono">{{ detailRow.web_root }}</span>
+              <span class="muted">绑定于 {{ fmtFull(detailRow.root_bound_at) }}</span>
+            </template>
+            <span v-else class="muted">未绑定</span>
+          </span>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-/* 列序：1 网站 2 所属服务器 3 备份目录 4 网站根目录 5 最近备份 6 备份计划 7 保留 8 状态 9 操作(始终保留) */
+/* 列序：1 网站 2 最近备份 3 备份计划 4 保留 5 状态 6 操作(始终保留)
+   注：所属服务器 / 备份目录 / 网站根目录 已整合进操作栏「详情」弹框 */
 .toolbar {
   display: flex;
   align-items: center;
@@ -579,5 +595,44 @@ const total = computed(() => meta.total)
 }
 .row-actions .el-button + .el-button {
   margin-left: 0;
+}
+
+/* ---------- 详情弹框 ---------- */
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.detail-label {
+  width: 88px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--bc-text-secondary);
+  padding-top: 1px;
+}
+.detail-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--bc-text-primary);
+  word-break: break-all;
+}
+.detail-paths-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.detail-paths-row:last-child { margin-bottom: 0; }
+.detail-full {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
 }
 </style>

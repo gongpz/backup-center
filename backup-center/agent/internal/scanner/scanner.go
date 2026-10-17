@@ -22,7 +22,10 @@ type Scanner struct {
 
 	mu    sync.Mutex
 	sites []client.Website
-	seen  map[int64]map[string]bool
+	// seen[websiteID][完整文件路径] = 是否已上报过。
+	// 必须是完整路径 —— 同一网站配了多个备份目录时，
+	// 不同目录下的同名文件按文件名去重会被误判为重复。
+	seen map[int64]map[string]bool
 }
 
 func New(c *client.Client, uploader UploadDispatcher) *Scanner {
@@ -145,7 +148,10 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 			}
 			filename := filepath.Base(path)
 
-			if s.wasSeen(w.ID, filename) {
+			// 用完整路径去重：同一网站的不同备份目录里可能存在同名文件，
+			// 按文件名去重会让第二个目录的备份永远上报不上来
+			//（表现为恢复界面只显示一个可恢复文件）。
+			if s.wasSeen(w.ID, path) {
 				continue
 			}
 
@@ -162,7 +168,7 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 			slog.Warn("上报失败", "website", w.Name, "file", filename, "err", err)
 			continue
 		}
-		s.markSeen(w.ID, filename)
+		s.markSeen(w.ID, path)
 		files++
 
 		if resp.Created {
@@ -184,20 +190,21 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 	return files, uploads
 }
 
-func (s *Scanner) wasSeen(websiteID int64, filename string) bool {
+// wasSeen / markSeen 的 key 是「完整文件路径」，不是文件名。
+func (s *Scanner) wasSeen(websiteID int64, path string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := s.seen[websiteID]; ok {
-		return m[filename]
+		return m[path]
 	}
 	return false
 }
 
-func (s *Scanner) markSeen(websiteID int64, filename string) {
+func (s *Scanner) markSeen(websiteID int64, path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.seen[websiteID]; !ok {
 		s.seen[websiteID] = make(map[string]bool)
 	}
-	s.seen[websiteID][filename] = true
+	s.seen[websiteID][path] = true
 }

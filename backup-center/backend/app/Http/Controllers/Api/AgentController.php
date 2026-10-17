@@ -462,7 +462,9 @@ class AgentController extends Controller
 
     /**
      * Agent 发现新备份文件时上报。
-     * 幂等：同一 (website_id, filename) 只创建一条记录，重复上报会被忽略（或更新 size/backup_at）。
+     * 幂等：同一 (website_id, full_path) 只创建一条记录，重复上报会被忽略（或更新 size/backup_at）。
+     * 注意：不能按 (website_id, filename) 去重 —— 一个网站配了多个备份目录时，
+     * 不同目录下的同名备份文件会被误判为重复而丢失（恢复界面就只能看到一个）。
      */
     public function report(Request $request): JsonResponse
     {
@@ -494,22 +496,31 @@ class AgentController extends Controller
 
         $status = $data['status'] ?? BackupLog::STATUS_SUCCESS;
 
+        // 幂等键用「网站 + 完整路径」而不是文件名：
+        // 一个网站可以配置多个备份目录，不同目录下完全可能存在同名文件
+        //（比如两个目录里都叫 backup.zip）。若按 (website_id, filename) 去重，
+        // 第二个目录的文件会被误判为重复而丢弃，表现为
+        // 「两个目录都备份成功了，但恢复界面只显示一个可恢复」。
+        $fullPath = (($data['full_path'] ?? '') !== '')
+            ? $data['full_path']
+            : $data['filename'];
+
         // 幂等：先查是否已存在
         $log = BackupLog::firstOrNew([
             'website_id' => $website->id,
-            'filename'   => $data['filename'],
+            'full_path'  => $fullPath,
         ]);
 
         $created = ! $log->exists;
 
         $log->fill([
             'server_id'        => $server->id,
-            'full_path'        => $data['full_path']  ?? $log->full_path,
+            'full_path'        => $fullPath,
             // 来源键：与迁移回填共用同一个纯函数，避免双份逻辑漂移。
-            // 只放 fill()，绝不能进 firstOrNew() 的幂等键（幂等键是 website_id+filename）。
+            // 只放 fill()，绝不能进 firstOrNew() 的幂等键（幂等键是 website_id+full_path）。
             'source_key'       => BackupSource::derive(
                 $data['filename'],
-                $data['full_path'] ?? null,
+                $fullPath,
                 $website->backup_paths ?: []
             ),
             'size'             => $data['size']       ?? $log->size,

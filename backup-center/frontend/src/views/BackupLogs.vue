@@ -259,7 +259,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="文件" min-width="200">
+        <el-table-column label="文件" min-width="150">
           <template #default="{ row }">
             <div class="cell-file">
               <div class="mono strong" :title="row.filename">{{ row.filename }}</div>
@@ -311,7 +311,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="云上传" width="100">
+        <el-table-column label="云上传" width="130">
           <template #default="{ row }">
             <span :class="['badge', uploadMeta[row.upload_status]?.cls]">
               {{ uploadMeta[row.upload_status]?.text || '—' }}
