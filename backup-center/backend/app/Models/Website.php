@@ -60,6 +60,7 @@ class Website extends Model
         return [
             'server_id' => 'integer',
             'retention_days' => 'integer',
+            'db_port' => 'integer',
             'backup_paths' => 'array',
             'last_backup_at' => 'datetime',
             'last_backup_size' => 'integer',
