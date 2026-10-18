@@ -2,9 +2,10 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Calendar, Box, Check } from '@element-plus/icons-vue'
+import { Refresh, Calendar, Box } from '@element-plus/icons-vue'
 import { restoreApi } from '@/api/restore'
 import RestoreConfirmDialog from '@/components/RestoreConfirmDialog.vue'
+import RestoreDetailDialog from '@/components/RestoreDetailDialog.vue'
 import RestoreProgressDrawer from '@/components/RestoreProgressDrawer.vue'
 
 const route = useRoute()
@@ -22,13 +23,15 @@ const rangeOptions = [
 ]
 const rangeNames = { month: '一个月', week: '一周', '3day': '三天', '1day': '一天' }
 
-/* ---------- 套件列表（每组 = 一套） ---------- */
+/* ---------- 套件列表（每组 = 一天，组内为多个恢复项） ---------- */
 const groups = ref([])
 const listLoading = ref(false)
 let reqSeq = 0
 
-/* ---------- 选择与下发 ---------- */
-const selected = ref(null)
+/* ---------- 恢复详情弹窗 / 二次确认 ---------- */
+const detailOpen = ref(false)
+const detailSuite = ref(null)
+const detailIds = ref([]) // 详情弹窗中勾选的 backup_log_id
 const confirmOpen = ref(false)
 const restoreSending = ref(false)
 
@@ -42,6 +45,9 @@ const elapsed = ref(0)
 let pollTimer = null
 let tickTimer = null
 let polling = false
+
+// pending / dispatched 均视为「进行中」
+const RUNNING = ['pending', 'dispatched']
 
 /* ================= 数据加载 ================= */
 
@@ -76,6 +82,7 @@ const loadGroups = async () => {
     const res = await restoreApi.backups({ website_id: selectedWebsiteId.value, range: range.value })
     if (seq !== reqSeq) return // 丢弃过期响应，防止慢请求覆盖新结果
     groups.value = res.data || []
+    applyActiveCommands(res.active_commands || [])
   } catch (_) {
     // 失败时保留上一次成功结果，错误提示由拦截器统一弹出
   } finally {
@@ -83,9 +90,27 @@ const loadGroups = async () => {
   }
 }
 
-// 切换网站 / 时间范围：清空选择并重新拉取（进行中的恢复任务不中断）
+// 刷新 / 重新进入页面后：把进行中的命令灌回 activeFiles / statusMap，并恢复轮询
+// （否则用户刷新后看不到进度，进行中的任务也不再更新状态）
+const applyActiveCommands = (cmds) => {
+  if (!cmds.length) return
+  for (const c of cmds) {
+    const id = String(c.backup_log_id)
+    activeFiles[id] = {
+      filename: c.filename,
+      local_dir: c.local_dir,
+      size: fileSizeOf(c.backup_log_id),
+      command_id: c.command_id,
+    }
+    // 已有轮询结果（含 output）时保留，仅在缺失时补种初始状态
+    if (!statusMap[id]) statusMap[id] = { status: c.status, command_id: c.command_id }
+  }
+  // 有进行中命令时必须重启轮询（刷新后 polling 已随组件销毁而停止）
+  if (cmds.some((c) => RUNNING.includes(c.status)) && !polling) startPolling()
+}
+
+// 切换网站 / 时间范围：重新拉取（进行中的恢复任务不中断）
 watch([selectedWebsiteId, range], () => {
-  selected.value = null
   loadGroups()
 })
 
@@ -94,85 +119,79 @@ onMounted(loadWebsites)
 /* ================= 计算属性 ================= */
 
 const currentWebsite = computed(() => websites.value.find((w) => w.id === selectedWebsiteId.value) || null)
-const selectedFiles = computed(() => (selected.value?.files || []).filter((f) => f.restorable))
-const selectedSize = computed(() => selectedFiles.value.reduce((s, f) => s + (f.size || 0), 0))
-const selectedDateLabel = computed(() => (selected.value ? fmtGroupDate(selected.value.date) : ''))
-const confirmFiles = computed(() =>
-  selectedFiles.value.map((f) => {
-    // advanced 模式恢复目标为线上 web_root（覆盖线上）；lite 保持 dirname(full_path)
-    const localDir =
-      currentWebsite.value?.restore_mode === 'advanced'
-        ? (currentWebsite.value?.web_root || '—')
-        : (dirname(f.full_path) || '—')
-    return {
+
+// 二次确认弹窗的文件清单：来自详情弹窗勾选结果（目标目录规则与原整套恢复一致）
+const confirmFiles = computed(() => {
+  const suite = detailSuite.value
+  if (!suite) return []
+  return detailIds.value
+    .map((id) => (suite.files || []).find((f) => f.backup_log_id === id && f.restorable))
+    .filter(Boolean)
+    .map((f) => ({
       backup_log_id: f.backup_log_id,
       filename: f.filename,
-      local_dir: localDir,
+      // advanced 模式恢复目标为线上 web_root（覆盖线上）；lite 保持 dirname(full_path)
+      local_dir:
+        currentWebsite.value?.restore_mode === 'advanced'
+          ? (currentWebsite.value?.web_root || '—')
+          : (dirname(f.full_path) || '—'),
       size: f.size,
-    }
-  }),
-)
+    }))
+})
+const confirmDateLabel = computed(() => (detailSuite.value ? fmtFull(detailSuite.value.backup_at) : ''))
+
 const activeIds = computed(() => Object.keys(activeFiles))
+const activeCount = computed(() => activeIds.value.length)
 const activeFilesArr = computed(() => activeIds.value.map((id) => ({ backup_log_id: Number(id), ...activeFiles[id] })))
 const allTerminal = computed(
   () => activeIds.value.length > 0 && activeIds.value.every((id) => ['success', 'failed'].includes(statusMap[id]?.status)),
 )
-const hasAnyRestorable = computed(() => groups.value.some((g) => g.restorable_count > 0))
-
-/* ================= 选择 ================= */
-
-const isSelected = (g) => selected.value === g
-const canSelect = (g) => g.restorable_count > 0
-const toggleSelect = (g) => {
-  if (!canSelect(g)) return
-  selected.value = selected.value === g ? null : g
-}
+const hasAnyRestorable = computed(() => groups.value.some((g) => (g.suites || []).some((s) => s.restorable_count > 0)))
 
 /* ================= 状态徽标 ================= */
 
-// 套件的恢复状态聚合（最坏优先，视觉规格 §3.2）；无任何进行中文件时返回 null
-const groupAggregate = (g) => {
-  const st = g.files.map((f) => statusMap[f.backup_log_id]?.status)
-  if (!st.some(Boolean)) return null
-  if (st.some((s) => s === 'failed')) return 'failed'
-  if (st.some((s) => s === 'dispatched')) return 'dispatched'
-  if (st.every((s) => s === 'success')) return 'success'
-  if (st.some((s) => s === 'success')) return 'partial'
-  return 'pending'
-}
-const aggregateMeta = {
-  failed: { cls: 'fail', text: '恢复失败' },
+// 后端下发的恢复项级状态（组内最坏优先）；无任何恢复状态时展示可恢复性
+const restoreStateMeta = {
+  pending: { cls: 'gray', text: '待执行' },
   dispatched: { cls: 'run', text: '执行中' },
   success: { cls: 'ok', text: '已恢复' },
-  partial: { cls: 'warn', text: '部分恢复' },
-  pending: { cls: 'gray', text: '待执行' },
+  failed: { cls: 'fail', text: '恢复失败' },
 }
-// 无进行中任务时，展示可恢复性聚合（最坏优先）
-const restorableMeta = (g) => {
-  if (g.restorable_count === 0) return { cls: 'gray', text: '无成功上传' }
-  if (g.restorable_count === g.total_count) return { cls: 'ok', text: '全部可恢复' }
-  return { cls: 'warn', text: `${g.restorable_count}/${g.total_count} 可恢复` }
+// 无进行中/历史恢复状态时，展示可恢复性聚合（最坏优先）
+const restorableMeta = (s) => {
+  if (s.restorable_count === 0) return { cls: 'gray', text: '无成功上传' }
+  if (s.restorable_count === s.total_count) return { cls: 'ok', text: '全部可恢复' }
+  return { cls: 'warn', text: `${s.restorable_count}/${s.total_count} 可恢复` }
 }
-const headBadge = (g) => aggregateMeta[groupAggregate(g)] || restorableMeta(g)
+const headBadge = (s) => restoreStateMeta[s.restore_state] || restorableMeta(s)
 
-/* ================= 下发与轮询 ================= */
+/* ================= 恢复详情弹窗 ================= */
 
-const openConfirm = () => {
-  if (!selectedFiles.value.length) return
+const openDetail = (s) => {
+  detailSuite.value = s
+  detailOpen.value = true
+}
+
+// 详情弹窗确认勾选 → 打开二次确认弹窗（高级模式的危险确认在其中）
+const onDetailConfirm = (ids) => {
+  detailIds.value = ids || []
+  if (!detailIds.value.length) return
   confirmOpen.value = true
 }
 
-const onConfirmRestore = async () => {
-  if (restoreSending.value) return
+/* ================= 下发与轮询 ================= */
+
+const onConfirmRestore = async (ids) => {
+  if (restoreSending.value || !ids?.length) return
   restoreSending.value = true
   try {
-    const res = await restoreApi.restore({ backup_log_ids: selectedFiles.value.map((f) => f.backup_log_id) })
+    const res = await restoreApi.restore({ backup_log_ids: ids })
     const data = res.data || {}
     for (const [id, info] of Object.entries(data)) {
       activeFiles[id] = {
         filename: info.filename,
         local_dir: info.local_dir,
-        size: selectedFiles.value.find((f) => f.backup_log_id === Number(id))?.size || 0,
+        size: fileSizeOf(Number(id)),
         command_id: info.command_id,
       }
       delete statusMap[id] // 重新下发：清掉旧终态，等待新一轮轮询
@@ -182,7 +201,7 @@ const onConfirmRestore = async () => {
       ElMessage.warning(`${res.skipped.length} 个文件被跳过：${res.skipped.map((s) => s.reason).join('；')}`)
     }
     confirmOpen.value = false
-    selected.value = null
+    detailOpen.value = false
     drawerOpen.value = true
     startPolling()
   } catch (_) {
@@ -267,7 +286,6 @@ const dirname = (p) => {
   const idx = String(p).lastIndexOf('/')
   return idx > 0 ? String(p).slice(0, idx) : ''
 }
-const groupSize = (g) => (g.files || []).reduce((s, f) => s + (f.size || 0), 0)
 const fileTitle = (f) => {
   const lines = [f.filename]
   if (f.full_path) lines.push(f.full_path)
@@ -278,6 +296,29 @@ const fileTitle = (f) => {
     lines.push('该文件没有成功上传到任何存储，无法从云端恢复')
   }
   return lines.join('\n')
+}
+// 恢复项卡片头部时刻（本地时区 HH:mm）
+const hhmm = (iso) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+// 日期分组标题：今天 · 10月18日 / 昨天 · 10月17日 / 10月10日
+const suiteDayLabel = (dateStr) => {
+  if (!dateStr) return '—'
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return dateStr
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`
+  const rel = fmtGroupDate(dateStr)
+  return rel === md ? md : `${rel} · ${md}`
+}
+// 恢复项总大小：优先用后端下发的 total_size，缺省时按文件累加
+const suiteSize = (s) => s.total_size || (s.files || []).reduce((sum, f) => sum + (f.size || 0), 0)
+// 跨套件查文件大小（下发后补 activeFiles.size、刷新灌入进行中命令时使用）
+const fileSizeOf = (id) => {
+  const pools = detailSuite.value ? [...(detailSuite.value.files || [])] : []
+  for (const g of groups.value) for (const s of g.suites || []) pools.push(...(s.files || []))
+  return pools.find((f) => f.backup_log_id === id)?.size || 0
 }
 </script>
 
@@ -336,6 +377,12 @@ const fileTitle = (f) => {
       </div>
     </div>
 
+    <!-- 进行中恢复任务横幅：刷新/重新进入后依然可见，点击查看进度 -->
+    <div v-if="activeCount > 0" class="restore-active-bar" @click="drawerOpen = true">
+      <el-icon size="14"><Refresh /></el-icon>
+      <span>{{ activeCount }} 个恢复任务进行中 · 点击查看进度 →</span>
+    </div>
+
     <div v-loading="listLoading || websitesLoading" class="restore-list">
       <!-- 未选网站 -->
       <div v-if="!selectedWebsiteId" class="empty">
@@ -365,90 +412,82 @@ const fileTitle = (f) => {
         </div>
 
         <div class="suite-grid">
-          <div v-for="g in groups" :key="g.date" class="restore-group">
-            <div
-              class="restore-set bc-card"
-              :class="{ 'is-selected': isSelected(g), 'is-disabled': !canSelect(g) }"
-            >
+          <template v-for="g in groups" :key="g.date">
+            <!-- 日期分组标题 -->
+            <div class="suite-day" :title="fmtFullDate(g.date)">{{ suiteDayLabel(g.date) }}</div>
+            <!-- 一个恢复项 = 一次备份（同批次产生的多个文件已合并） -->
+            <div v-for="s in g.suites" :key="s.suite_id" class="restore-group">
               <div
-                class="restore-set-head"
-                role="radio"
-                :aria-checked="isSelected(g)"
-                :tabindex="canSelect(g) ? 0 : -1"
-                :title="canSelect(g) ? (isSelected(g) ? '点击取消选择' : '点击选择这一套') : '这套备份的所有文件都没有成功上传记录，无法从云端恢复'"
-                @click="toggleSelect(g)"
-                @keydown.enter.prevent="toggleSelect(g)"
-                @keydown.space.prevent="toggleSelect(g)"
+                class="restore-set bc-card"
+                :class="{ 'is-disabled': s.restorable_count === 0 }"
+                role="button"
+                :aria-label="`查看 ${fmtFull(s.backup_at)} 备份（${s.total_count} 个文件）的恢复详情`"
+                :title="`${fmtFull(s.backup_at)} · 点击查看恢复详情`"
+                tabindex="0"
+                @click="openDetail(s)"
+                @keydown.enter.prevent="openDetail(s)"
+                @keydown.space.prevent="openDetail(s)"
               >
-                <span class="restore-set-date" :title="fmtFullDate(g.date)">{{ fmtGroupDate(g.date) }}</span>
-                <span :class="['badge', headBadge(g).cls]">{{ headBadge(g).text }}</span>
-                <span class="restore-set-meta">{{ g.total_count }} 个文件 · {{ fmtSize(groupSize(g)) }}</span>
-                <span class="restore-check"><el-icon><Check /></el-icon></span>
-              </div>
+                <div class="restore-set-head">
+                  <span class="restore-set-date" :title="fmtFull(s.backup_at)">{{ hhmm(s.backup_at) }}</span>
+                  <span :class="['badge', headBadge(s).cls]">{{ headBadge(s).text }}</span>
+                  <span class="restore-set-meta">{{ s.total_count }} 个文件 · {{ fmtSize(suiteSize(s)) }}</span>
+                </div>
 
-              <div class="file-list">
-                <div
-                  v-for="f in g.files"
-                  :key="f.backup_log_id"
-                  class="file-row"
-                  :class="{ 'is-unrestorable': !f.restorable }"
-                  :title="fileTitle(f)"
-                >
-                  <span class="chip" :class="f.type === 'database' ? 'chip-purple' : 'chip-blue'">
-                    {{ f.type === 'database' ? '数据库' : '网站目录' }}
-                  </span>
-                  <span class="file-name mono" :title="f.filename">{{ f.filename }}</span>
-                  <span class="file-size">{{ fmtSize(f.size) }}</span>
-                  <div class="file-stores">
-                    <template v-if="f.latest_upload">
-                      <span class="chip chip-neutral" :title="f.latest_upload.storage_name">{{ f.latest_upload.storage_name }}</span>
-                      <span class="file-upload-time" :title="fmtFull(f.latest_upload.uploaded_at)">
-                        {{ fmtTime(f.latest_upload.uploaded_at) }} 上传
-                      </span>
-                    </template>
-                    <span v-else class="badge gray">无成功上传</span>
+                <div class="file-list">
+                  <div
+                    v-for="f in s.files"
+                    :key="f.backup_log_id"
+                    class="file-row"
+                    :class="{ 'is-unrestorable': !f.restorable }"
+                    :title="fileTitle(f)"
+                  >
+                    <span class="chip" :class="f.type === 'database' ? 'chip-purple' : 'chip-blue'">
+                      {{ f.type === 'database' ? '数据库' : '网站目录' }}
+                    </span>
+                    <span class="file-name mono" :title="f.filename">{{ f.filename }}</span>
+                    <span class="file-size">{{ fmtSize(f.size) }}</span>
+                    <div class="file-stores">
+                      <template v-if="f.latest_upload">
+                        <span class="chip chip-neutral" :title="f.latest_upload.storage_name">{{ f.latest_upload.storage_name }}</span>
+                        <span class="file-upload-time" :title="fmtFull(f.latest_upload.uploaded_at)">
+                          {{ fmtTime(f.latest_upload.uploaded_at) }} 上传
+                        </span>
+                      </template>
+                      <span v-else class="badge gray">无成功上传</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div v-if="groupAggregate(g)" class="restore-set-foot">
-                <el-button link type="primary" @click="drawerOpen = true">查看进度 →</el-button>
-              </div>
-              <div v-else-if="g.restorable_count < g.total_count" class="restore-set-foot">
-                <span class="foot-warn">仅 {{ g.restorable_count }} / {{ g.total_count }} 个文件可恢复</span>
+                <div v-if="s.restore_state" class="restore-set-foot">
+                  <el-button link type="primary" @click.stop="drawerOpen = true">查看进度 →</el-button>
+                </div>
+                <div v-else-if="s.restorable_count < s.total_count" class="restore-set-foot">
+                  <span class="foot-warn">仅 {{ s.restorable_count }} / {{ s.total_count }} 个文件可恢复</span>
+                </div>
               </div>
             </div>
-          </div>
+          </template>
         </div>
       </template>
-    </div>
-
-    <!-- 底部 sticky 操作条（选中才出现） -->
-    <div v-if="selected" class="restore-action-bar">
-      <span class="bar-info">
-        已选：<b>{{ selectedDateLabel }}</b> · <b>{{ selectedFiles.length }}</b> 个文件 · <b>{{ fmtSize(selectedSize) }}</b>
-      </span>
-      <div class="bar-actions">
-        <el-button size="default" @click="selected = null">取消选择</el-button>
-        <el-button
-          type="primary"
-          :loading="restoreSending"
-          :disabled="!selectedFiles.length"
-          @click="openConfirm"
-        >
-          {{ selectedFiles.length < selected.total_count ? `恢复这一套（${selectedFiles.length} 个文件）` : '开始恢复' }}
-        </el-button>
-      </div>
     </div>
 
     <RestoreConfirmDialog
       v-model="confirmOpen"
       :files="confirmFiles"
-      :date-label="selectedDateLabel"
-      :total-count="selected?.total_count || 0"
+      :date-label="confirmDateLabel"
+      :total-count="detailSuite?.total_count || 0"
       :sending="restoreSending"
       :restore-mode="currentWebsite?.restore_mode || 'lite'"
-      @confirm="onConfirmRestore"
+      @confirm="onConfirmRestore(detailIds)"
+    />
+    <RestoreDetailDialog
+      v-model="detailOpen"
+      :suite="detailSuite"
+      :website="currentWebsite"
+      :status-map="statusMap"
+      :sending="restoreSending"
+      @confirm="onDetailConfirm"
     />
     <RestoreProgressDrawer
       v-model="drawerOpen"
@@ -568,6 +607,23 @@ const fileTitle = (f) => {
 }
 .opt-sub { font-size: 11px; color: var(--bc-text-secondary); margin-top: 1px; }
 
+/* ---- 进行中恢复任务横幅（primary 配色，点击打开进度抽屉） ---- */
+.restore-active-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bc-primary-light);
+  border: 1px solid var(--bc-primary-100);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--bc-primary);
+  cursor: pointer;
+  transition: background-color var(--bc-dur) var(--bc-ease);
+}
+.restore-active-bar:hover { background: var(--bc-primary-50); }
+
 /* ---- 套件网格 ---- */
 .restore-list { min-height: 200px; }
 .suite-grid {
@@ -576,11 +632,22 @@ const fileTitle = (f) => {
   gap: 16px;
 }
 /* 分组切换依次浮现（reduced-motion 由全局兜底） */
-.restore-group { animation: bc-rise .45s var(--bc-ease-out) backwards; }
-.suite-grid .restore-group:nth-child(1) { animation-delay: .04s; }
-.suite-grid .restore-group:nth-child(2) { animation-delay: .08s; }
-.suite-grid .restore-group:nth-child(3) { animation-delay: .12s; }
-.suite-grid .restore-group:nth-child(4) { animation-delay: .16s; }
+.suite-grid > * { animation: bc-rise .45s var(--bc-ease-out) backwards; }
+.suite-grid > :nth-child(1) { animation-delay: .04s; }
+.suite-grid > :nth-child(2) { animation-delay: .08s; }
+.suite-grid > :nth-child(3) { animation-delay: .12s; }
+.suite-grid > :nth-child(4) { animation-delay: .16s; }
+
+/* 日期分组标题（组内一个恢复项一张卡） */
+.suite-day {
+  grid-column: 1 / -1;
+  margin: 4px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bc-text-secondary);
+}
+.suite-day:first-child { margin-top: 0; }
+.restore-group { min-width: 0; }
 
 .restore-set {
   position: relative;
@@ -590,22 +657,17 @@ const fileTitle = (f) => {
   padding: 16px;
   height: 100%; /* 同行卡片等高，状态区底对齐 */
   min-width: 0;
+  cursor: pointer; /* 整卡可点：打开恢复详情 */
 }
+.restore-set:focus-visible { outline: none; box-shadow: var(--bc-ring); }
 .restore-set:not(.is-disabled):hover {
   border-color: var(--bc-border-light);
   box-shadow: var(--bc-shadow);
   transform: translateY(-1px);
 }
-/* 选中态：主色描边 + 柔光晕，不整卡染色 */
-.restore-set.is-selected,
-.restore-set.is-selected:hover {
-  border-color: var(--bc-primary-200);
-  box-shadow: var(--bc-shadow-sm), 0 0 0 3px var(--bc-primary-50);
-  transform: none;
-}
 .restore-set.is-disabled { opacity: .62; }
-.restore-set.is-disabled .restore-set-head { cursor: not-allowed; }
 
+/* 卡片头部即入口：点击打开恢复详情弹窗 */
 .restore-set-head {
   display: flex;
   align-items: center;
@@ -621,6 +683,7 @@ const fileTitle = (f) => {
   font-weight: 600;
   color: var(--bc-text-primary);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .restore-set-meta {
   margin-left: auto;
@@ -629,29 +692,6 @@ const fileTitle = (f) => {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* 勾选圈：复用 WebsiteBindDialog .step-no 视觉语法（对勾替代数字） */
-.restore-check {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1.5px solid var(--bc-border-strong);
-  background: var(--bc-bg-card);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background-color var(--bc-dur) var(--bc-ease), border-color var(--bc-dur) var(--bc-ease);
-}
-.restore-check .el-icon {
-  font-size: 12px;
-  color: var(--bc-on-accent);
-  opacity: 0;
-  transform: scale(.5);
-  transition: opacity var(--bc-dur-fast) var(--bc-ease), transform var(--bc-dur) var(--bc-ease-spring);
-}
-.restore-set.is-selected .restore-check { background: var(--bc-primary); border-color: var(--bc-primary); }
-.restore-set.is-selected .restore-check .el-icon { opacity: 1; transform: scale(1); }
-.restore-set.is-disabled .restore-check { border-color: var(--bc-border-hair); }
 
 /* ---- 文件行 ---- */
 .file-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -731,28 +771,6 @@ const fileTitle = (f) => {
 .empty-title { margin: 0; font-size: var(--bc-fs-sm); color: var(--bc-text-secondary); font-weight: 500; }
 .empty-sub { margin: 0; font-size: var(--bc-fs-xs); color: var(--bc-text-placeholder); }
 
-/* ---- 底部 sticky 操作条（毛玻璃浮层） ---- */
-.restore-action-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  margin-top: 16px;
-  background: var(--bc-glass-bg);
-  backdrop-filter: var(--bc-glass-blur);
-  border: 1px solid var(--bc-border-light);
-  border-radius: var(--bc-radius-lg);
-  box-shadow: var(--bc-shadow-lg);
-  animation: bc-rise .3s var(--bc-ease-out) backwards;
-}
-.bar-info { font-size: var(--bc-fs-sm); color: var(--bc-text-secondary); }
-.bar-info b { color: var(--bc-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
-.bar-actions { display: inline-flex; gap: 8px; flex-shrink: 0; }
-
 /* ---- 响应式 ---- */
 @media (max-width: 1180px) {
   .suite-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -761,9 +779,5 @@ const fileTitle = (f) => {
   .suite-grid { grid-template-columns: minmax(0, 1fr); }
   .restore-set { padding: 12px; }
   .range { margin-left: 0; width: 100%; justify-content: space-between; }
-}
-@media (max-width: 600px) {
-  .restore-action-bar { flex-direction: column; align-items: stretch; gap: 10px; }
-  .bar-actions { justify-content: flex-end; }
 }
 </style>

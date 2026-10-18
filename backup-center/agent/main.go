@@ -33,6 +33,18 @@ var runtimeConfigPath string
 
 const rcloneConfPath = "/etc/backup-agent/rclone.conf"
 
+// restoreMu 保证同一时刻 Agent 上只有一条 restore 命令真正在执行。
+// 背景：restore 内部是 rclone copyto 大文件下载，advanced 模式下载成功后还有
+// 预备份 + tar 解压覆盖网站根目录 / 数据库 DROP+CREATE+导入，全程重占带宽与磁盘 IO。
+// 两条 restore 并发会同时跑多个 rclone，互相抢占带宽和磁盘，可能打满整机 IO、
+// 拖慢线上网站服务——这是前端防重（同时只允许提交一条恢复）之外的后端兜底。
+//
+// 排队策略：Center 每次心跳只派发一条命令，新 restore 发现锁被占用时在
+// performRestore 入口排队等待前一条彻底结束（含 advanced 的 tar/导库）再执行，
+// 而不是丢弃让 Center 重派——Center 的 stale sweep 显式排除 restore 不会标
+// failed，直接丢弃会让命令永远卡在 dispatched 状态无人执行。
+var restoreMu sync.Mutex
+
 func main() {
 	var (
 		configPath = flag.String("config", "/etc/backup-agent/config.json", "配置文件路径")
@@ -688,6 +700,16 @@ func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.S
 	if remotePath == "" || localDir == "" || filename == "" {
 		return "", fmt.Errorf("恢复参数不完整（remote_path/local_dir/filename 不能为空）")
 	}
+
+	// restore 串行执行：等前一条恢复完整结束（含 advanced 的预备份/tar/导库）再继续，
+	// 避免多条 restore 的 rclone 并发抢占带宽/磁盘。排队而非丢弃的理由见 restoreMu 声明处注释。
+	// 参数非法的命令在上面已直接返回，不会等待这把锁，失败结果可即时上报 Center；
+	// defer Unlock 覆盖后续所有 return 路径（下载失败 / advanced 各步骤失败均正常释放）。
+	if !restoreMu.TryLock() {
+		slog.Info("已有恢复任务在执行，本恢复排队等待", "id", cmd.ID, "from", remotePath)
+		restoreMu.Lock()
+	}
+	defer restoreMu.Unlock()
 
 	if err := os.MkdirAll(localDir, 0755); err != nil {
 		return "", fmt.Errorf("创建本地目录失败 %s: %w", localDir, err)

@@ -7,6 +7,7 @@ use App\Models\AgentCommand;
 use App\Models\BackupLog;
 use App\Models\BackupUpload;
 use App\Models\Website;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -46,10 +47,17 @@ class RestoreController extends Controller
     }
 
     /**
-     * 按网站 + 日期分组的备份套件。
+     * 按「恢复项」分组的备份列表。
      *
-     * 同一网站同一天的多条 backup_log（网站目录文件 + 数据库文件等）即为一套，
-     * 前端可按组一键整套恢复。
+     * 恢复项 = 同一次备份产生的文件集合（网站目录归档 + 数据库转储等），
+     * 按 backup_at 合并：相差 ≤ 合并窗口的多个文件算同一次备份。
+     *   - self 自主备份：web/db 两个产物共用同一 backupAt（秒级相同）→ 必然同组；
+     *   - external 扫描：文件 mtime 取决于外部脚本生成顺序 → 靠窗口兜底合并。
+     * 同一天允许有多个恢复项（一天备份多次），前端按天二级分组展示；
+     * 点击恢复项看详情、勾选要恢复的文件——不再"默认一套全恢复"。
+     *
+     * 同时返回 active_commands（本网站进行中的恢复命令），让前端刷新后
+     * 仍能看到恢复进度，并对"恢复中"的文件禁用重复下发。
      */
     public function backups(Request $request): JsonResponse
     {
@@ -81,20 +89,24 @@ class RestoreController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        // 按日期（Y-m-d）聚组：组间日期倒序，组内保持备份时间倒序
-        $groups = [];
+        // 合并窗口：backup_at 相差 ≤ 30 分钟视为同一次备份。
+        // logs 已按 backup_at 倒序（新→旧），每个文件尝试并入时间相邻的当前恢复项；
+        // 与组内最早的文件比较，保证组跨度不超过窗口（避免链式合并把不同批次串起来）。
+        $windowSeconds = 1800;
+
+        $suites = [];
         foreach ($logs as $log) {
-            $date = $log->backup_at?->format('Y-m-d') ?? '';
+            $at = $log->backup_at;
             $latest = $log->uploads->first();
 
-            $groups[$date][] = [
+            $file = [
                 'backup_log_id' => $log->id,
                 'label' => $this->fileLabel($log, $website),
                 'type' => $this->fileType((string) $log->filename),
                 'filename' => $log->filename,
                 'full_path' => $log->full_path,
                 'size' => $log->size,
-                'backup_at' => $log->backup_at?->toIso8601String(),
+                'backup_at' => $at?->toIso8601String(),
                 'restorable' => (bool) $latest,
                 'latest_upload' => $latest ? [
                     'id' => $latest->id,
@@ -104,21 +116,83 @@ class RestoreController extends Controller
                     'uploaded_at' => $latest->finished_at?->toIso8601String() ?? $latest->updated_at?->toIso8601String(),
                 ] : null,
             ];
+
+            $merged = false;
+            $n = count($suites);
+            if ($n > 0 && $at) {
+                $prev = $suites[$n - 1];
+                $prevFiles = $prev['files'];
+                $earliestAt = $prevFiles[count($prevFiles) - 1]['backup_at'];
+                if ($earliestAt && Carbon::parse($earliestAt)->diffInSeconds($at) <= $windowSeconds) {
+                    $prev['files'][] = $file;
+                    $suites[$n - 1] = $prev;
+                    $merged = true;
+                }
+            }
+            if (! $merged) {
+                // 新恢复项：backup_at 取组内最新文件的时间（倒序第一个加入的即最新）
+                $suites[] = [
+                    'suite_id' => 'suite-' . $log->id,
+                    'backup_at' => $at?->toIso8601String(),
+                    'files' => [$file],
+                ];
+            }
         }
 
-        krsort($groups);
+        // 每个 backup_log 取最新一条 restore 命令（含终态，用于"已恢复"徽标）
+        $latestByLog = $this->latestRestoreCommandByLog($website);
+
+        $dayGroups = [];
+        foreach ($suites as $suite) {
+            $files = $suite['files'];
+            $times = array_unique(array_filter(array_column($files, 'backup_at')));
+
+            $states = [];
+            foreach ($files as $f) {
+                $cmd = $latestByLog[$f['backup_log_id']] ?? null;
+                if ($cmd) {
+                    $states[] = $cmd->status;
+                }
+            }
+
+            $suite['total_count'] = count($files);
+            $suite['restorable_count'] = count(array_filter($files, fn ($f) => $f['restorable']));
+            $suite['total_size'] = array_sum(array_column($files, 'size'));
+            $suite['restore_state'] = $this->aggregateRestoreState($states);
+            // match：组内 backup_at 是否完全一致（self 模式精确合并 / external 窗口合并）
+            $suite['match'] = count($times) <= 1 ? 'exact' : 'window';
+
+            $date = $suite['backup_at'] ? Carbon::parse($suite['backup_at'])->format('Y-m-d') : '';
+            $dayGroups[$date][] = $suite;
+        }
+
+        krsort($dayGroups);
 
         $out = [];
-        foreach ($groups as $date => $files) {
-            $out[] = [
-                'date' => $date,
-                'total_count' => count($files),
-                'restorable_count' => count(array_filter($files, fn ($f) => $f['restorable'])),
-                'files' => $files,
+        foreach ($dayGroups as $date => $items) {
+            $out[] = ['date' => $date, 'suites' => $items];
+        }
+
+        // 进行中的恢复命令（pending/dispatched）：前端用于刷新后恢复进度展示与重复下发防护
+        $logIds = $logs->pluck('id')->all();
+        $active = [];
+        foreach ($latestByLog as $logId => $cmd) {
+            if (! in_array((int) $logId, $logIds, true)) {
+                continue;
+            }
+            if (! in_array($cmd->status, [AgentCommand::STATUS_PENDING, AgentCommand::STATUS_DISPATCHED], true)) {
+                continue;
+            }
+            $active[] = [
+                'backup_log_id' => (int) $logId,
+                'command_id' => $cmd->id,
+                'status' => $cmd->status,
+                'filename' => basename((string) ($cmd->params['remote_path'] ?? '')),
+                'local_dir' => $cmd->params['local_dir'] ?? '',
             ];
         }
 
-        return response()->json(['data' => $out]);
+        return response()->json(['data' => $out, 'active_commands' => $active]);
     }
 
     /**
@@ -174,15 +248,15 @@ class RestoreController extends Controller
                 }
             }
 
-            // 同一 upload 已有进行中的 restore 命令 → 跳过该文件（替代原服务器级 409）
+            // 同一 upload 已有进行中的 restore 命令 → 跳过该文件（替代原服务器级 409）。
+            // 只扫 pending/dispatched 两种状态（量小），不再 orderByDesc('id')->limit(100)
+            // 内存过滤——命令堆积时 limit 边界会漏检，造成同一文件被重复下发。
             $conflict = AgentCommand::where('server_id', $server->id)
                 ->where('type', AgentCommand::TYPE_RESTORE)
-                ->orderByDesc('id')
-                ->limit(100)
+                ->whereIn('status', [AgentCommand::STATUS_PENDING, AgentCommand::STATUS_DISPATCHED])
                 ->get()
                 ->contains(fn ($c) => ($c->params['upload_id'] ?? null) == $upload->id
-                    && ($c->params['restore_mode'] ?? 'lite') === $mode
-                    && in_array($c->status, [AgentCommand::STATUS_PENDING, AgentCommand::STATUS_DISPATCHED], true));
+                    && ($c->params['restore_mode'] ?? 'lite') === $mode);
 
             if ($conflict) {
                 $skipped[] = ['backup_log_id' => $log->id, 'reason' => '该文件已有恢复任务在进行中'];
@@ -281,6 +355,54 @@ class RestoreController extends Controller
         }
 
         return response()->json(['data' => $out]);
+    }
+
+    /**
+     * 每个 backup_log 取最新一条 restore 命令（含终态，用于"已恢复"徽标与进度恢复）。
+     *
+     * @return array<string, AgentCommand> key = backup_log_id（字符串）
+     */
+    private function latestRestoreCommandByLog(Website $website): array
+    {
+        $commands = AgentCommand::where('server_id', $website->server_id)
+            ->where('type', AgentCommand::TYPE_RESTORE)
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get();
+
+        $byLog = [];
+        foreach ($commands as $cmd) {
+            $logId = $cmd->params['backup_log_id'] ?? null;
+            if ($logId === null) {
+                continue;
+            }
+            $logId = (string) $logId;
+            if (! isset($byLog[$logId])) {
+                $byLog[$logId] = $cmd;
+            }
+        }
+
+        return $byLog;
+    }
+
+    /**
+     * 恢复项的状态聚合（最坏优先）。无命令返回 null。
+     */
+    private function aggregateRestoreState(array $states): ?string
+    {
+        if (empty($states)) {
+            return null;
+        }
+        if (in_array(AgentCommand::STATUS_FAILED, $states, true)) {
+            return AgentCommand::STATUS_FAILED;
+        }
+        if (in_array(AgentCommand::STATUS_DISPATCHED, $states, true)) {
+            return AgentCommand::STATUS_DISPATCHED;
+        }
+        if (in_array(AgentCommand::STATUS_PENDING, $states, true)) {
+            return AgentCommand::STATUS_PENDING;
+        }
+        return AgentCommand::STATUS_SUCCESS;
     }
 
     /**
