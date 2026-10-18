@@ -44,7 +44,8 @@ export const defaultEncryption = {
 
 /**
  * 归一化服务端返回的 encryption 块：缺省字段补默认值；
- * password 只透传服务端 safeConfig 掩码值（••••••••）或空串，永不明文回填
+ * password 直接透传服务端返回的明文密码（后端 safeConfig 已改为返回明文而非 ••••••••），
+ * 编辑时回填展示；提交时留空即表示「不修改」（后端契约）
  */
 export const normalizeEncryption = (enc) => ({
   enabled: !!enc?.enabled,

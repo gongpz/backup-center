@@ -117,7 +117,7 @@ watch(
     form.is_mandatory = !! props.storage.is_mandatory
     form.remark = props.storage.remark || ''
     form.access_url = props.storage.access_url || ''
-    // encryption 块从 config 拆出单独编辑；password 只透传服务端 safeConfig 的掩码值或空串
+    // encryption 块从 config 拆出单独编辑；password 透传服务端返回的明文密码（无则空串）
     const incomingConfig = { ...(props.storage.config || {}) }
     form.encryption = normalizeEncryption(incomingConfig.encryption)
     delete incomingConfig.encryption
@@ -142,6 +142,24 @@ watch(
   },
 )
 
+// 生成 rclone crypt 用随机密码：24 字节 CSPRNG → 48 位十六进制
+const genEncryptionPassword = () => {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+// 新增存储：开启备份加密且密码为空时自动生成随机密码
+// 编辑模式不自动生成：密码留空 = 不修改（后端契约），避免误导用户改密
+watch(
+  () => form.encryption.enabled,
+  (v) => {
+    if (v && !isEdit.value && !form.encryption.password) {
+      form.encryption.password = genEncryptionPassword()
+    }
+  },
+)
+
 const close = () => emit('update:modelValue', false)
 
 const onSubmit = () => {
@@ -158,7 +176,7 @@ const onSubmit = () => {
         is_mandatory: form.is_mandatory,
         remark: form.remark,
         access_url: form.access_url || null,
-        // encryption 原样提交：password 为空或 •••••••• 占位符时由后端按「不修改」语义处理
+        // encryption 原样提交：password 为空时由后端按「不修改」语义处理
         config: { ...form.config, encryption: { ...form.encryption } },
       }
       const saved = isEdit.value
@@ -188,7 +206,7 @@ const onSubmit = () => {
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="95px"
+      label-width="112px"
       label-position="right"
       require-asterisk-position="left"
     >
@@ -243,7 +261,9 @@ const onSubmit = () => {
 
       <template v-if="form.encryption.enabled">
         <el-form-item label="密钥模式">
-          <el-select v-model="form.encryption.key_mode" style="width: 100%">
+          <!-- popper-class + style.css 全局规则：EP 下拉项默认 height:34px/overflow:hidden，
+               会压扁选项内两行内容（label + desc），popper 的样式只能走全局覆盖 -->
+          <el-select v-model="form.encryption.key_mode" style="width: 100%" popper-class="key-mode-popper">
             <!-- 选项内说明用内联样式：下拉 popper 会 teleport 到 body，scoped 样式不生效 -->
             <el-option v-for="o in keyModeOptions" :key="o.value" :value="o.value" :label="o.label">
               <div style="line-height: 1.5; padding: 2px 0">
@@ -256,10 +276,10 @@ const onSubmit = () => {
         </el-form-item>
 
         <el-form-item v-if="form.encryption.key_mode === 'center'" label="加密密码">
+          <!-- 明文展示：自动生成的随机密码需要可直接核对/抄录；留空提交 = 不修改 -->
           <el-input
             v-model="form.encryption.password"
-            type="password"
-            show-password
+            type="text"
             :placeholder="passwordPlaceholder"
           />
         </el-form-item>

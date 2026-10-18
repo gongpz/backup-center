@@ -239,11 +239,16 @@ const total = computed(() => meta.total)
                 </el-table-column>
                 <el-table-column label="错误 / 远端路径" min-width="240">
                   <template #default="{ row: u }">
-                    <div v-if="u.error_message" class="err-msg" :title="u.error_message">
+                    <!-- 防御：重试成功后 error_message 可能残留；uploaded 成功态不再当硬错误展示，
+                         优先显示远端路径，无路径时降级为灰色弱提示。失败状态保持 ❌ 原样。 -->
+                    <div v-if="u.error_message && u.status !== 'uploaded'" class="err-msg" :title="u.error_message">
                       ❌ {{ u.error_message }}
                     </div>
                     <div v-else-if="u.remote_path" class="mono muted" :title="u.remote_path">
                       {{ u.remote_path }}
+                    </div>
+                    <div v-else-if="u.error_message" class="muted" :title="u.error_message">
+                      曾有失败尝试，已重传成功
                     </div>
                     <span v-else class="muted">—</span>
                   </template>

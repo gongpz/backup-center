@@ -549,9 +549,26 @@ a { color: inherit; text-decoration: none; }
 }
 .el-form-item__error { font-size: var(--bc-fs-xs); color: var(--bc-danger); }
 
+/* ---------- 密钥模式下拉（选项为「label + 说明」两行结构）----------
+   EP 下拉项默认 height:34px + line-height:34px + overflow:hidden + white-space:nowrap，
+   两行内容会被压扁/截断。下拉 popper teleport 到 body，组件 scoped 样式不生效，
+   必须走 popper-class + 全局规则。height:auto 同时覆盖 .is-selected 选中项
+   （EP 选中态只改颜色/字重，不涉及尺寸）。 */
+.key-mode-popper .el-select-dropdown__item {
+  height: auto;
+  padding: 10px 16px;
+  white-space: normal;
+  line-height: 1.5;
+}
+
 /* ---------- Dialog ---------- */
 /* 标题栏为「半透明背景条」：四角圆角、左右通幅；关闭按钮定位在 banner 内右侧居中 */
-/* ⚠️ 调整 header 的 margin/padding 时必须同步改 headerbtn 的 top/right */
+/* ⚠️ 调整 header 的 margin/padding 时必须同步改 headerbtn 的 top/right。
+   banner 几何（与 dialog 宽度无关，全系统 8 处 el-dialog 通用）：
+   dialog padding 16 + header margin 20 → banner 上缘 y=36、高 52（14 内边距 + 24 标题行高 + 14 内边距）、
+   右缘在 dialog 右缘内侧 36px 处。34px 按钮垂直居中：top = 36 + (52-34)/2 = 45px；
+   右缘距 banner 右边缘留 10px：right = 36 + 10 = 46px
+   （旧值 right:30px 会使按钮右缘超出 banner 右缘 6px，即「关闭按钮超出标题背景框」）。 */
 .el-dialog {
   --el-dialog-border-radius: var(--bc-radius-xl);
   background: var(--bc-bg-elevated);
@@ -568,7 +585,7 @@ html.dark .el-dialog__header { background: rgba(51, 180, 208, .12); }
 .el-dialog__body { padding: 20px 24px !important; }
 .el-dialog__footer { padding: 12px 24px 28px !important; }
 .el-dialog__headerbtn {
-  top: 38px !important; right: 30px !important;
+  top: 45px !important; right: 46px !important;
   width: 34px; height: 34px; border-radius: var(--bc-radius);
   transition: background-color var(--bc-dur) var(--bc-ease);
 }

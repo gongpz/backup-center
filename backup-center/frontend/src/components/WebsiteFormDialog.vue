@@ -249,7 +249,7 @@ const onSubmit = () => {
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="95px"
+      label-width="112px"
       label-position="right"
       require-asterisk-position="left"
     >
