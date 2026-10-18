@@ -414,6 +414,11 @@ class AgentController extends Controller
                 $upload->$k = $data[$k];
             }
         }
+        // 重试成功那次上报不带 error_message（null 覆盖不掉旧值），显式清空：
+        // 否则「已上传」记录旁挂着历史失败的 CRITICAL，用户误以为备份没成功
+        if ($data['status'] === BackupUpload::STATUS_UPLOADED) {
+            $upload->error_message = null;
+        }
         $upload->save();
 
         // 更新 backup_log 的总体 upload_status：全成功=uploaded，任一失败=upload_failed，否则 uploading
