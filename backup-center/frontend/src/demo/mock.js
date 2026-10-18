@@ -435,7 +435,12 @@ const scheduleRestore = (cmd) => {
         : `高级恢复完成：网站目录已覆盖（预备份 ${bakPath('.tar.gz')}）`)
       : `已恢复 ${cmd.params.filename} → ${cmd.params.local_dir}`
   }
-  setTimeout(() => { if (cmd.status === 'pending') cmd.status = 'dispatched' }, 6000)
+  setTimeout(() => {
+    if (cmd.status === 'pending') {
+      cmd.status = 'dispatched'
+      cmd.dispatched_at = new Date().toISOString()
+    }
+  }, 6000)
   if (!advanced) {
     setTimeout(finish, 14000)
     return
@@ -461,6 +466,50 @@ const scheduleAgentUpgrade = (serverId, cmdId) => {
   }), 14000)
 }
 
+/**
+ * 恢复统计 + 最近恢复记录：由 db.restoreCommands 派生，
+ * 字段结构与后端 DashboardController 的 stats.restore / recent_restores 一致。
+ */
+function buildRestoreStats() {
+  const cmds = db.restoreCommands
+  const success = cmds.filter((c) => c.status === 'success').length
+  const failed = cmds.filter((c) => c.status === 'failed').length
+  const total_size = cmds.reduce((s, c) => {
+    const log = findById(db.logs, c.params.backup_log_id)
+    return s + (log ? log.size : 0)
+  }, 0)
+  return {
+    total: cmds.length,
+    success,
+    failed,
+    success_rate: cmds.length > 0 ? Math.round(success / cmds.length * 1000) / 10 : null,
+    total_size,
+  }
+}
+
+function buildRecentRestores() {
+  return db.restoreCommands
+    .slice()
+    .sort((a, b) => b.id - a.id)
+    .slice(0, 10)
+    .map((c) => {
+      const log = findById(db.logs, c.params.backup_log_id)
+      const website = log ? findById(db.websites, log.website_id) : null
+      return {
+        id: c.id,
+        filename: c.params.filename,
+        size: log ? log.size : null,
+        status: c.status,
+        duration_seconds: c.dispatched_at && c.completed_at
+          ? Math.max(1, Math.round((new Date(c.completed_at) - new Date(c.dispatched_at)) / 1000))
+          : null,
+        created_at: c.created_at,
+        completed_at: c.completed_at,
+        website: website ? { id: website.id, name: website.name, domain: website.domain } : null,
+      }
+    })
+}
+
 function buildDashboard(range) {
   const key = RANGE_CFG[range] ? range : 'week'
   const buckets = buildBuckets(key)
@@ -475,10 +524,12 @@ function buildDashboard(range) {
       ...RANGE_STATS[key],
       cumulative_size: 612 * GB,
       cumulative_count: 15832,
+      restore: buildRestoreStats(),
     },
     count_trend: buckets.map((b) => ({ label: b.label, value: b.count })),
     size_trend: buckets.map((b) => ({ label: b.label, value: b.size })),
     recent_logs: db.logs.slice(0, 10),
+    recent_restores: buildRecentRestores(),
     // 与后端一致：任何外发 shape 里的 encryption.password 都必须是掩码，永不明文
     storages: db.storages.map(safeStorage),
   }
@@ -887,6 +938,8 @@ const routes = [
         output: null,
         error: null,
         completed_at: null,
+        dispatched_at: null,
+        created_at: new Date().toISOString(),
         params: {
           backup_log_id: log.id,
           upload_id: upload.id,

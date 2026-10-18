@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BackupLogResource;
+use App\Http\Resources\RestoreCommandResource;
+use App\Models\AgentCommand;
 use App\Models\BackupLog;
 use App\Models\Server;
 use App\Models\Storage;
@@ -46,6 +48,25 @@ class DashboardController extends Controller
         $curCount   = $curLogs->count();
         $curSize    = (int) $curLogs->sum('size');
 
+        // ---------- 当前周期 恢复统计（一条 restore 命令 = 一次文件级恢复） ----------
+        $curCmds = AgentCommand::where('type', AgentCommand::TYPE_RESTORE)
+            ->whereBetween('created_at', [$start, $now])
+            ->get(['id', 'status', 'params']);
+        $restoreTotal   = $curCmds->count();
+        $restoreSuccess = $curCmds->where('status', AgentCommand::STATUS_SUCCESS)->count();
+        $restoreFailed  = $curCmds->where('status', AgentCommand::STATUS_FAILED)->count();
+
+        // 恢复数据量：命令自身没有 size 字段，按 params.backup_log_id 取对应备份文件大小；
+        // 同一文件重复恢复按次累计（每次恢复都会实际回传一遍数据）。
+        $cmdLogIds = $curCmds->map(fn ($c) => $c->params['backup_log_id'] ?? null)
+            ->filter()->unique()->values();
+        $cmdLogSizes = $cmdLogIds->isNotEmpty()
+            ? BackupLog::whereIn('id', $cmdLogIds)->pluck('size', 'id')
+            : collect();
+        $restoreSize = (int) $curCmds->sum(
+            fn ($c) => (int) ($cmdLogSizes[$c->params['backup_log_id'] ?? 0] ?? 0)
+        );
+
         // ---------- 上一周期 用于计算变化率 ----------
         $prevAgg = BackupLog::whereBetween('backup_at', [$prevStart, $start])
             ->selectRaw("
@@ -80,6 +101,26 @@ class DashboardController extends Controller
             ->orderByDesc('backup_at')
             ->limit(10)
             ->get();
+
+        // ---------- 最近恢复记录（10 条，含进行中的命令） ----------
+        $recentRestores = AgentCommand::where('type', AgentCommand::TYPE_RESTORE)
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+        $restoreLogIds = $recentRestores->map(fn ($c) => $c->params['backup_log_id'] ?? null)
+            ->filter()->unique()->values();
+        $restoreLogs = $restoreLogIds->isNotEmpty()
+            ? BackupLog::with(['website:id,name,domain'])
+                ->whereIn('id', $restoreLogIds)->get()->keyBy('id')
+            : collect();
+        // 把 BackupLog 挂到 restoreLog 关系上（AgentCommand 本身没有该关联），
+        // backup_log 已被删除时保持未挂载，Resource 会省略 website/size 字段。
+        foreach ($recentRestores as $cmd) {
+            $log = $restoreLogs->get($cmd->params['backup_log_id'] ?? 0);
+            if ($log) {
+                $cmd->setRelation('restoreLog', $log);
+            }
+        }
 
         // ---------- 存储列表（含配额和已用量） ----------
         $storages = Storage::withCount('websites')->get()->map(fn ($s) => [
@@ -119,12 +160,22 @@ class DashboardController extends Controller
 
                 'cumulative_count' => $cumCount,
                 'cumulative_size'  => $cumSize,
+
+                // 恢复统计（与备份统计同周期口径）；total = 0 时成功率无意义，返回 null
+                'restore' => [
+                    'total'        => $restoreTotal,
+                    'success'      => $restoreSuccess,
+                    'failed'       => $restoreFailed,
+                    'success_rate' => $restoreTotal > 0 ? round($restoreSuccess / $restoreTotal * 100, 1) : null,
+                    'total_size'   => $restoreSize,
+                ],
             ],
 
             'count_trend' => $countTrend,
             'size_trend'  => $sizeTrend,
 
             'recent_logs' => BackupLogResource::collection($recent)->resolve($request),
+            'recent_restores' => RestoreCommandResource::collection($recentRestores)->resolve($request),
             'storages' => $storages,
         ]);
     }

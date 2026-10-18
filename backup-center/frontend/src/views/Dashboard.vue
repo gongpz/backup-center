@@ -14,6 +14,8 @@ import {
   DataAnalysis,
   Coin,
   DataLine,
+  RefreshLeft,
+  Download,
 } from '@element-plus/icons-vue'
 import BarChart from '@/components/charts/BarChart.vue'
 import AreaChart from '@/components/charts/AreaChart.vue'
@@ -136,6 +138,39 @@ const statsRow2 = computed(() => {
   ]
 })
 
+/* ---------- KPI 卡（第三排 恢复类）---------- */
+const statsRow3 = computed(() => {
+  if (! data.value?.stats?.restore) return []
+  const r = data.value.stats.restore
+  const size = fmtSize(r.total_size)
+  return [
+    {
+      label: `${rangePrefix.value}恢复次数`,
+      value: r.total.toLocaleString(),
+      hint: `成功 ${r.success} · 失败 ${r.failed}`,
+      icon: RefreshLeft, tone: 'blue',
+    },
+    {
+      label: `${rangePrefix.value}恢复数据量`,
+      value: size.value + ' ' + size.unit,
+      hint: '按恢复文件大小累计',
+      icon: Download, tone: 'cyan',
+    },
+    {
+      label: '恢复成功率',
+      value: r.success_rate === null || r.success_rate === undefined ? '—' : r.success_rate.toFixed(1) + '%',
+      hint: r.total > 0 ? `共 ${r.total} 次恢复` : '本周期暂无恢复',
+      icon: CircleCheck, tone: 'emerald',
+    },
+    {
+      label: `${rangePrefix.value}恢复失败`,
+      value: r.failed.toLocaleString(),
+      hint: '恢复执行未完成',
+      icon: CircleClose, tone: 'red',
+    },
+  ]
+})
+
 /* ---------- 图表数据 ---------- */
 const barData = computed(() => data.value?.count_trend || [])
 
@@ -174,6 +209,17 @@ const statusMeta = {
   success: { text: '成功', class: 'ok' },
   failed:  { text: '失败', class: 'fail' },
   running: { text: '执行中', class: 'run' },
+}
+
+/* ---------- 表格：最近恢复记录 ---------- */
+const restoreTableRows = computed(() => data.value?.recent_restores || [])
+
+// 恢复命令状态机：pending -> dispatched -> success | failed
+const restoreStatusMeta = {
+  success:    { text: '成功',   class: 'ok' },
+  failed:     { text: '失败',   class: 'fail' },
+  dispatched: { text: '执行中', class: 'run' },
+  pending:    { text: '排队中', class: 'run' },
 }
 const fmtTime = (iso) => {
   if (! iso) return '—'
@@ -262,6 +308,28 @@ const fmtDuration = (sec) => {
         </div>
         <div v-else class="stat-change up">
           <span class="change-hint">全部时间累计</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 恢复数据看板 -->
+    <div class="section-head">
+      <div>
+        <div class="chart-title">恢复数据看板</div>
+        <div class="chart-sub">{{ rangePrefix.value }} · 恢复运行概览</div>
+      </div>
+    </div>
+    <div class="stat-grid stat-grid--sub">
+      <div v-for="s in statsRow3" :key="s.label" class="stat-card bc-card">
+        <div class="stat-head">
+          <span class="stat-label">{{ s.label }}</span>
+          <div :class="['stat-icon', `tone-${s.tone}`]">
+            <el-icon size="16"><component :is="s.icon" /></el-icon>
+          </div>
+        </div>
+        <div class="stat-value">{{ s.value }}</div>
+        <div class="stat-change up">
+          <span class="change-hint">{{ s.hint }}</span>
         </div>
       </div>
     </div>
@@ -373,6 +441,60 @@ const fmtDuration = (sec) => {
         </table>
         <div v-else class="empty">
           暂无备份记录 · Agent 上报后会在此显示
+        </div>
+      </div>
+    </div>
+
+    <!-- 最近恢复记录 -->
+    <div class="table-card bc-card">
+      <div class="table-head">
+        <div>
+          <div class="chart-title">最近恢复记录</div>
+          <div class="chart-sub">显示最新 10 条</div>
+        </div>
+        <router-link to="/restore" class="chart-sub link">查看全部 →</router-link>
+      </div>
+      <div class="table-wrap">
+        <table v-if="restoreTableRows.length" class="recent-table">
+          <thead>
+            <tr>
+              <th>编号</th>
+              <th>网站</th>
+              <th>文件</th>
+              <th>大小</th>
+              <th>耗时</th>
+              <th>时间</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in restoreTableRows" :key="row.id">
+              <td class="mono">#{{ row.id }}</td>
+              <td>
+                <div class="site-cell">
+                  <div class="site-avatar">{{ (row.website?.name || 'W').charAt(0).toUpperCase() }}</div>
+                  <span>{{ row.website?.name || '—' }}</span>
+                </div>
+              </td>
+              <td class="mono" :title="row.filename">{{ row.filename || '—' }}</td>
+              <td class="strong">{{ fmtRowSize(row.size) }}</td>
+              <td>{{ fmtDuration(row.duration_seconds) }}</td>
+              <td :title="row.completed_at ? new Date(row.completed_at).toLocaleString() : '—'">
+                <div>{{ fmtTime(row.created_at) }}</div>
+                <div v-if="row.duration_seconds" class="cell-sub">
+                  完成于 {{ fmtTime(row.completed_at) }}
+                </div>
+              </td>
+              <td>
+                <span :class="['badge', restoreStatusMeta[row.status]?.class]">
+                  {{ restoreStatusMeta[row.status]?.text || row.status }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">
+          暂无恢复记录 · 下发恢复任务后会在此显示
         </div>
       </div>
     </div>
@@ -506,6 +628,14 @@ const fmtDuration = (sec) => {
 
 .mb-block { margin-bottom: 20px; }
 
+/* ---------- 分区标题（恢复数据看板） ---------- */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 0 12px;
+}
+
 /* ---------- 图表区 ---------- */
 .chart-grid {
   display: grid;
@@ -580,6 +710,8 @@ const fmtDuration = (sec) => {
 
 /* ---------- 表格 ---------- */
 .table-card { padding: 0; overflow: hidden; }
+/* 备份表与恢复表相邻时留出间距（不影响页面中其他孤立表格卡） */
+.table-card + .table-card { margin-top: 20px; }
 .table-head {
   padding: 18px 20px;
   border-bottom: 1px solid var(--bc-border-light);
