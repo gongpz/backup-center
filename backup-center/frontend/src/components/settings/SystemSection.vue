@@ -5,11 +5,27 @@ import { Setting, Sunny, Moon, Monitor, SuccessFilled } from '@element-plus/icon
 import { systemApi } from '@/api/settings'
 import { useSystemStore } from '@/stores/system'
 import { currentTheme, setTheme } from '@/utils/theme'
+import http from '@/utils/http'
 
 const system = useSystemStore()
 const form = reactive({ system_name: 'backup center' })
 const loading = ref(false)
 const saving = ref(false)
+// 版本号动态读取：系统版本来自 /api/version（构建时写入 backend/VERSION，随部署包 tag 更新），
+// Agent 版本来自 /api/agent-latest-version（后端 config/agent.php，随 Agent 发版更新）。
+// 之前两处都硬编码，导致发了新版界面仍显示旧版本号。
+const versions = reactive({ system: '', agent: '' })
+
+const loadVersions = async () => {
+  try {
+    const v = await http.get('/version').then(x => x.data)
+    if (v?.version) versions.system = v.version
+  } catch (_) {}
+  try {
+    const r = await http.get('/agent-latest-version').then(x => x.data)
+    if (r?.version) versions.agent = r.version
+  } catch (_) {}
+}
 
 const load = async () => {
   loading.value = true
@@ -36,7 +52,7 @@ const themeOptions = [
 ]
 const pickTheme = (v) => { theme.value = v; setTheme(v) }
 
-onMounted(() => { load(); theme.value = currentTheme() })
+onMounted(() => { load(); theme.value = currentTheme(); loadVersions() })
 </script>
 
 <template>
@@ -64,8 +80,8 @@ onMounted(() => { load(); theme.value = currentTheme() })
           <el-icon><Setting /></el-icon>
           <span>关于本站</span>
         </div>
-        <div class="kv-row"><span class="k">系统版本</span><span class="v">Backup Center · MVP</span></div>
-        <div class="kv-row"><span class="k">Agent 版本</span><span class="v">v0.13.0</span></div>
+        <div class="kv-row"><span class="k">系统版本</span><span class="v">{{ versions.system || '—' }}</span></div>
+        <div class="kv-row"><span class="k">Agent 版本</span><span class="v">{{ versions.agent ? 'v' + versions.agent : '—' }}</span></div>
         <div class="kv-row"><span class="k">时区</span><span class="v">Asia/Shanghai（北京时间）</span></div>
         <div class="kv-row"><span class="k">部署</span><span class="v">Docker Compose · Laravel 12 + Vue 3</span></div>
       </div>

@@ -17,8 +17,12 @@ const load = async () => {
   try {
     const d = await systemApi.get()
     if (d.footer_config) config.value = { ...config.value, ...d.footer_config }
-    // Agent 版本（展示用静态值）
-    versions.value.agent = 'v0.14.0'
+  } catch (_) {}
+  // Agent 版本：读取 Center 分发的最新版本（后端 config/agent.php，随 Agent 发版 bump）。
+  // 不再硬编码——避免发了新 Agent、页脚仍显示旧版本号。
+  try {
+    const r = await http.get('/agent-latest-version').then(x => x.data)
+    if (r?.version) versions.value.agent = 'v' + r.version
   } catch (_) {}
   // 系统版本：读取真实部署版本（构建时写入 backend/VERSION，经 /api/version 暴露）。
   // 失败则保持为空，页脚版本块会自动隐藏，不会显示过期的硬编码值（如旧版写死的 v1.1.0）。
