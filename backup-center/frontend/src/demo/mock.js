@@ -128,7 +128,7 @@ const db = {
   // 早期 seq=15833 会让预置自主备份日志与静态记录撞号（db.logs 出现重复 id，
   // 备份记录表 row-key="id" 行状态串扰、findById 解析到错误条目）。
   seq: { server: 7, website: 9, storage: 5, log: 15844, pool: 2, cmd: 100 },
-  latestAgentVersion: '0.14.0',
+  latestAgentVersion: '0.14.3',
 
   user: { id: 1, name: '张管理员', username: 'admin', email: 'admin@example.com', role: 'admin' },
 
@@ -558,6 +558,9 @@ const routes = [
 
   /* ---------- 服务器 ---------- */
   ['get', /^\/agent-latest-version$/, () => ({ latest_version: db.latestAgentVersion, version: db.latestAgentVersion })],
+  // 系统版本（对齐后端 VersionController：真实部署取构建时写入的 backend/VERSION，
+  // 演示模式无该文件，直接返回当前发版号；不覆盖的话兜底返回 {data:[]}，设置页/页脚显示「—」）
+  ['get', /^\/version$/, () => ({ version: 'v1.2.14', commit_short: 'eb27bc2', channel: 'demo' })],
   ['get', /^\/servers$/, (m, p) => paginate(db.servers.filter((s) => (
     (!p.status || s.status === p.status)
     && (!p.connect_type || s.connect_type === p.connect_type)

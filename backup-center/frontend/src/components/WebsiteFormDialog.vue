@@ -43,7 +43,7 @@ const form = reactive({
 
   // 备份来源（P1）：external=沿用服务器上的第三方/外部压缩产物；self=由本系统自主压缩（P3 支持）
   backup_source: 'external',
-  // 恢复模式（P1）：lite=拉回备份目录，手动恢复；advanced=系统全自动恢复线上（P4 支持）
+  // 恢复模式：lite=拉回备份目录，手动恢复；advanced=系统全自动恢复线上（自动预备份+解压覆盖+导库，P4 已落地）
   restore_mode: 'lite',
 
   // 数据库连接（自主压缩 self 用；密码留空表示不修改）
@@ -367,14 +367,14 @@ const onSubmit = () => {
         </div>
       </el-form-item>
 
-      <!-- 备份来源（P1：接口预留，自主压缩 P3 落地） -->
+      <!-- 备份来源：self=自主压缩（Agent 自行 tar 网站目录 + dump 数据库，P3 已落地） -->
       <el-form-item label="备份来源" prop="backup_source">
         <div class="mode-row">
           <el-radio-group v-model="form.backup_source">
             <el-radio value="external">外部压缩备份</el-radio>
             <el-radio value="self">
               自主压缩备份
-              <span class="mode-tag mode-tag-pending">P3</span>
+              <span class="mode-tag mode-tag-ready">已支持</span>
             </el-radio>
           </el-radio-group>
         </div>
@@ -384,7 +384,7 @@ const onSubmit = () => {
               监控服务器上已有的备份产物（如面板/宝塔/脚本生成的压缩文件），发现新文件即上传。
             </template>
             <template v-else>
-              由本系统直接在服务器上完成网站目录与数据库压缩后再上传（后续版本支持）。
+              由本系统直接在服务器上完成网站目录与数据库压缩后再上传。
             </template>
           </span>
         </div>
@@ -413,7 +413,7 @@ const onSubmit = () => {
         </div>
       </el-form-item>
 
-      <!-- 恢复模式（P1：接口预留，高级恢复 P4 落地） -->
+      <!-- 恢复模式：lite=轻便手动恢复；advanced=高级自动恢复（P4 已落地） -->
       <el-form-item label="恢复模式" prop="restore_mode">
         <div class="mode-row">
           <el-radio-group v-model="form.restore_mode">
