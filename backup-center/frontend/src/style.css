@@ -510,10 +510,15 @@ a { color: inherit; text-decoration: none; }
   background: var(--bc-bg-inset);
   padding: 11px 0;
 }
-.el-table td.el-table__cell { padding: 13px 0; color: var(--bc-text-regular); vertical-align: top; }
+/* 单元格垂直居中：此前是 top，会让单行内容（徽标/按钮/数字）顶到行首，
+   与旁边两行的内容（文件名+目录、名称+域名、多条备份）看起来文字高低不一 */
+.el-table td.el-table__cell { padding: 13px 0; color: var(--bc-text-regular); vertical-align: middle; }
 /* P0-3 密度：EP 自带 .cell{padding:0 12px;line-height:23px} 导致行高 49px/表头 45px，
    视觉密度虚高。改用 1.5 倍行高 + 16px 左右留白（首列 20px），行高约 46px、表头约 39px。 */
 .el-table .cell { padding-left: 16px; padding-right: 16px; line-height: 1.5; }
+/* 胶囊/徽标是 inline-flex：在普通 inline 排版里默认按 baseline 与旁边文字对齐，
+   文字会贴着胶囊的底，视觉上高低不一。统一改为垂直居中（flex/grid 容器内此属性不生效，无副作用）。 */
+.chip, .badge { vertical-align: middle; }
 .el-table tr > td:first-child > .cell,
 .el-table tr > th:first-child > .cell { padding-left: 20px; }
 .el-table tr > td:last-child > .cell,

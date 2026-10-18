@@ -557,7 +557,7 @@ const fileTitle = (f) => {
 }
 
 /* 网站下拉选项 */
-.opt-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.opt-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .opt-name { font-weight: 500; color: var(--bc-text-primary); white-space: nowrap; }
 .opt-domain {
   font-size: 11px;

@@ -277,7 +277,7 @@ const total = computed(() => meta.total)
         :cell-style="{ padding: '8px 6px' }"
         empty-text="暂无网站 · 点击右上角添加"
       >
-        <el-table-column label="网站" min-width="200">
+        <el-table-column label="网站" min-width="100">
           <template #default="{ row }">
             <div class="cell-name">
               <div class="site-avatar">{{ (row.name || 'W').charAt(0).toUpperCase() }}</div>
@@ -291,7 +291,7 @@ const total = computed(() => meta.total)
 
 
 
-        <el-table-column label="最近备份" min-width="200">
+        <el-table-column label="最近备份" min-width="160">
           <template #default="{ row }">
             <div v-if="recentBackupsOf(row)?.length" class="recent-backups">
               <div
@@ -342,13 +342,13 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="保留" width="70">
+        <el-table-column label="保留" width="105">
           <template #default="{ row }">
             <span class="muted">{{ row.retention_days }} 天</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" width="80">
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <span :class="['badge', statusMeta[row.status]?.cls]">
               {{ statusMeta[row.status]?.text }}
@@ -356,7 +356,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="360" fixed="right">
+        <el-table-column label="操作" width="450" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link :icon="Document" @click="openDetail(row)">详情</el-button>
@@ -581,7 +581,7 @@ const total = computed(() => meta.total)
   line-height: 1.5;
 }
 /* rb-label 已删除 —— 最近备份列不再展示自定义目录标签 */
-.rb-time { font-size: 11px; display: inline-flex; gap: 4px; align-items: baseline; }
+.rb-time { font-size: 11px; display: inline-flex; gap: 4px; align-items: center; }
 .rb-time-primary { color: var(--bc-text-secondary); }
 .rb-time-sub { color: var(--bc-text-placeholder); font-size: 10px; }
 .rb-empty { font-size: 12px; }

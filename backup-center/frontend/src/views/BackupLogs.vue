@@ -259,7 +259,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="文件" min-width="150">
+        <el-table-column label="文件" min-width="120">
           <template #default="{ row }">
             <div class="cell-file">
               <div class="mono strong" :title="row.filename">{{ row.filename }}</div>
