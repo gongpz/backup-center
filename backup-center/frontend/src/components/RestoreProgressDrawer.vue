@@ -34,6 +34,19 @@ const failedCount = computed(() => props.files.filter((f) => statusOf(f) === 'fa
 const allTerminal = computed(
   () => props.files.length > 0 && props.files.every((f) => ['success', 'failed'].includes(statusOf(f))),
 )
+
+// 从 rclone --stats-one-line 的进度行里解析百分比，形如：
+// "Transferred: 2.1 MiB / 8.7 MiB, 24%, 2.1 MiB/s, ETA 3s"
+// 解析不到（传输未满 5s、小文件秒传、或非进度行）返回 null → 前端走不确定态动画
+const pctOf = (f) => {
+  const st = props.statusMap[f.backup_log_id]
+  if (!st || !st.output) return null
+  const m = String(st.output).match(/(\d{1,3})\s*%/)
+  if (!m) return null
+  const n = Number(m[1])
+  return n <= 100 ? n : null
+}
+const isRunning = (f) => statusOf(f) === 'dispatched'
 </script>
 
 <template>
@@ -58,6 +71,20 @@ const allTerminal = computed(
           <span class="mono df-name" :title="f.filename">{{ f.filename }}</span>
         </div>
         <div class="mono df-dir" :title="f.local_dir">目标目录：{{ f.local_dir }}</div>
+        <!-- 进度条：执行中显示（有百分比→定长进度；无→不确定态滑动动画）；成功定格 100% -->
+        <div v-if="isRunning(f) || statusOf(f) === 'success'" class="df-progress">
+          <div class="df-bar">
+            <div
+              class="df-bar-fill"
+              :class="{ 'is-indeterminate': pctOf(f) === null && statusOf(f) !== 'success', 'is-done': statusOf(f) === 'success' }"
+              :style="pctOf(f) !== null
+                ? { width: pctOf(f) + '%' }
+                : (statusOf(f) === 'success' ? { width: '100%' } : null)"
+            ></div>
+          </div>
+          <span v-if="pctOf(f) !== null" class="df-pct" :class="{ 'is-ok': statusOf(f) === 'success' }">{{ pctOf(f) }}%</span>
+          <span v-else-if="statusOf(f) === 'success'" class="df-pct is-ok">100%</span>
+        </div>
         <div v-if="detailOf(f)" class="mono df-msg" :class="msgCls(f)" :title="detailOf(f)">{{ detailOf(f) }}</div>
       </div>
     </div>
@@ -163,6 +190,51 @@ const allTerminal = computed(
 .df-msg-run { color: var(--bc-primary); }
 .df-msg-ok  { color: var(--bc-success); }
 .df-msg-err { color: var(--bc-danger); }
+
+/* ---- 恢复进度条（下载进度条样式）---- */
+.df-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.df-bar {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bc-border-light);
+  overflow: hidden;
+}
+.df-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--bc-primary);
+  transition: width .3s ease;
+}
+.df-bar-fill.is-done { background: var(--bc-success); }
+/* 不确定态：还没抓到百分比时（传输未满 5s / 小文件秒传），给滑动动画让用户感知「在动」 */
+.df-bar-fill.is-indeterminate {
+  width: 40%;
+  animation: df-slide 1.3s var(--bc-ease, ease-in-out) infinite;
+}
+@keyframes df-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+.df-pct {
+  flex-shrink: 0;
+  min-width: 34px;
+  text-align: right;
+  font-size: var(--bc-fs-2xs);
+  font-weight: 600;
+  color: var(--bc-primary);
+  font-variant-numeric: tabular-nums;
+}
+.df-pct.is-ok { color: var(--bc-success); }
+@media (prefers-reduced-motion: reduce) {
+  .df-bar-fill.is-indeterminate { animation: none; width: 100%; opacity: .45; }
+}
 
 .drawer-summary {
   margin-top: 16px;
