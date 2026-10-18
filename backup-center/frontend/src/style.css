@@ -617,7 +617,14 @@ html.dark .el-button--primary:focus-visible {
 @media (max-width: 768px)  { .layout .el-main.main { padding: 12px; } }
 
 /* 小屏下弹层不超出视口（EP 默认 50% 宽在窄屏会被挤压/溢出） */
-.el-dialog, .el-drawer, .el-message-box { max-width: calc(100vw - 48px); }
+.el-dialog, .el-drawer { max-width: calc(100vw - 48px); }
+/* ElMessageBox 必须单独收宽度，不能并进上面的小屏兜底：
+   EP 的 .el-message-box 是 width:100% + max-width:420px（theme-chalk message-box.scss），
+   本文件后加载、同特异性、源序胜出——若给它套 calc(100vw - 48px)，420px 上限被冲掉，
+   桌面端直接满宽（"批量升级 Agent"弹窗占满屏幕即此因，全部 15 处 ElMessageBox 均中招）。
+   显式收回 460px（与最窄档 el-dialog「编辑备注」对齐，形成 460/560/580-620 三档体系），
+   小屏仍靠 max-width 兜底不溢出。 */
+.el-message-box { width: 460px; max-width: calc(100vw - 48px); }
 
 /* ---------- 表格列分级隐藏（P0-6）----------
    背景：Servers 8 列合计 1346px、Websites/Storages 9 列更宽，1440 视口就已横向滚动。
