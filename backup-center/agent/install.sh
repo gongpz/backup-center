@@ -145,7 +145,10 @@ StandardError=journal
 SyslogIdentifier=backup-agent
 
 PrivateTmp=true
-ProtectSystem=strict
+# ProtectSystem=full（而非 strict）：恢复（lite）要把云端归档写回用户配置的备份目录，
+# 高级恢复还要覆盖网站根目录——这些路径随用户配置变化、无法预先枚举进 ReadWritePaths，
+# strict 会让 rclone 直接报 "read-only file system"。full 仍保持 /usr、/boot、/etc 只读。
+ProtectSystem=full
 ReadWritePaths=/opt/backup-agent /etc/backup-agent /var/log/backup-agent /tmp
 NoNewPrivileges=true
 
