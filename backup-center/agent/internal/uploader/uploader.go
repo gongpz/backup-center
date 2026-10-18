@@ -132,6 +132,18 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 	start := time.Now()
 
 	// 调 rclone copyto
+	//
+	// --s3-no-head-object（根因修复）：cstcloud 对"有子对象的目录键"的 HEAD 返回 200
+	// （虚拟目录可探测），rclone S3 后端 NewFs 据此误判目标目录是文件 → fs.ErrorIsFile
+	// → "destination is a file"，传输还没开始就失败（s3.go NewFs 的 !opt.NoHeadObject
+	// 分支）。该旗标跳过目录键探测，ErrorIsFile 不再触发。
+	//
+	// --no-check-dest（堵虚假成功）：跳过目标对象存在性检查，NeedTransfer(nil, src)
+	// 恒为真 → 每次都真实 PUT，退出码 0 即真的上传成功。没有它时，若 rclone 判定
+	// 目标已存在且一致会静默跳过（退出 0 但不传输），Agent 会误报 uploaded。
+	//
+	// 注意：仅上传路径加这两个旗标。恢复路径（main.go performRestore 的 copyto
+	// 远程→本地）依赖 ErrorIsFile 分支识别"远程路径是文件"，严禁添加。
 	cmd := exec.Command("rclone",
 		"copyto",
 		"--config", u.configPath,
@@ -139,6 +151,8 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 		"--retries", "3",
 		"--low-level-retries", "5",
 		"--stats", "0",
+		"--s3-no-head-object",
+		"--no-check-dest",
 		localFile, remoteTarget,
 	)
 	// 采集 stderr 内容作为错误信息

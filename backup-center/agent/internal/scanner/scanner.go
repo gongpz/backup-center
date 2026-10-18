@@ -151,7 +151,13 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 			// 用完整路径去重：同一网站的不同备份目录里可能存在同名文件，
 			// 按文件名去重会让第二个目录的备份永远上报不上来
 			//（表现为恢复界面只显示一个可恢复文件）。
-			if s.wasSeen(w.ID, path) {
+			//
+			// 原子占位（检查即标记）：周期 ScanAll 与 sync_now 的 ForceScanAll
+			// （ClearSeen 后重扫全部）可能并发跑同一网站，旧的
+			// wasSeen→Report→markSeen 三步非原子——两个扫描都通过 wasSeen，
+			// 同一文件被重复上报 + 重复触发上传（04:42 日志实证：
+			// 030516.tar.gz 被上传两次）。claimSeen 在锁内一步完成检查与占位。
+			if !s.claimSeen(w.ID, path) {
 				continue
 			}
 
@@ -166,9 +172,10 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 		resp, err := s.client.Report(req)
 		if err != nil {
 			slog.Warn("上报失败", "website", w.Name, "file", filename, "err", err)
+			// 上报失败：释放占位，让下轮扫描重新发现该文件（保持重试语义）
+			s.releaseClaim(w.ID, path)
 			continue
 		}
-		s.markSeen(w.ID, path)
 		files++
 
 		if resp.Created {
@@ -190,21 +197,29 @@ func (s *Scanner) scanOne(w client.Website) (files, uploads int) {
 	return files, uploads
 }
 
-// wasSeen / markSeen 的 key 是「完整文件路径」，不是文件名。
-func (s *Scanner) wasSeen(websiteID int64, path string) bool {
+// claimSeen / releaseClaim 的 key 是「完整文件路径」，不是文件名。
+//
+// claimSeen 原子地检查并占位：已占位（已见过或正在上报中）返回 false。
+// 取代旧的 wasSeen + markSeen 两步非原子操作，杜绝并发扫描下同一文件
+// 被重复触发上传。ForceScanAll 前的 ClearSeen 会清空整表，手动同步不受影响。
+func (s *Scanner) claimSeen(websiteID int64, path string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m, ok := s.seen[websiteID]; ok {
-		return m[path]
+	if m, ok := s.seen[websiteID]; ok && m[path] {
+		return false
 	}
-	return false
-}
-
-func (s *Scanner) markSeen(websiteID int64, path string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, ok := s.seen[websiteID]; !ok {
 		s.seen[websiteID] = make(map[string]bool)
 	}
 	s.seen[websiteID][path] = true
+	return true
+}
+
+// releaseClaim 释放占位——仅上报失败时调用，让下轮扫描可以重新发现该文件
+func (s *Scanner) releaseClaim(websiteID int64, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.seen[websiteID]; ok {
+		delete(m, path)
+	}
 }
