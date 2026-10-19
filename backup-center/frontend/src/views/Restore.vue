@@ -442,8 +442,8 @@ const fileSizeOf = (id) => {
                     :class="{ 'is-unrestorable': !f.restorable }"
                     :title="fileTitle(f)"
                   >
-                    <span class="chip" :class="f.type === 'database' ? 'chip-purple' : 'chip-blue'">
-                      {{ f.type === 'database' ? '数据库' : '网站目录' }}
+                    <span class="chip" :class="f.type === 'database' ? 'chip-purple' : (f.type === 'snapshot' ? 'chip-snap' : 'chip-blue')">
+                      {{ f.type === 'database' ? '数据库' : f.type === 'snapshot' ? '增量快照' : '网站目录' }}
                     </span>
                     <span class="file-name mono" :title="f.filename">{{ f.filename }}</span>
                     <span class="file-size">{{ fmtSize(f.size) }}</span>
@@ -534,6 +534,7 @@ const fileSizeOf = (id) => {
 }
 .chip-blue    { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 .chip-purple  { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
+.chip-snap    { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
 .chip-neutral { background: var(--bc-bg-inset); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
 
 .badge {
