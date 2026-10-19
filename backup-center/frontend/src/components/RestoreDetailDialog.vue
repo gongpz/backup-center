@@ -24,17 +24,27 @@ const files = computed(() => props.suite?.files || [])
 const restorableCount = computed(() => files.value.filter((f) => f.restorable).length)
 const totalSize = computed(() => props.suite?.total_size || files.value.reduce((s, f) => s + (f.size || 0), 0))
 
-// 勾选集合：打开 / 切换恢复项时重置为「全部可恢复文件」
-// （无成功上传与恢复中的文件不可勾选，默认不勾选）
+// 勾选集合：打开 / 切换恢复项时**默认不勾选任何文件**——
+// 用户反馈「点开就全选再手动取消」体验差，改为主动勾选 + 全选/全不选快捷操作
 const checked = ref(new Set())
 watch(
   () => props.suite,
-  (s) => {
-    checked.value = new Set(
-      (s?.files || []).filter((f) => f.restorable && !isRunning(f)).map((f) => f.backup_log_id),
-    )
+  () => {
+    checked.value = new Set()
   },
   { immediate: true },
+)
+
+// 可勾选的文件（可恢复且非恢复中）
+const selectableFiles = computed(() => files.value.filter((f) => f.restorable && !isRunning(f)))
+const selectAll = () => {
+  checked.value = new Set(selectableFiles.value.map((f) => f.backup_log_id))
+}
+const selectNone = () => {
+  checked.value = new Set()
+}
+const allSelected = computed(
+  () => selectableFiles.value.length > 0 && checked.value.size === selectableFiles.value.length,
 )
 
 const checkedSize = computed(() =>
@@ -151,6 +161,8 @@ const fileTitle = (f) => {
       <div class="detail-foot">
         <span class="foot-stat">已选 {{ checked.size }} / {{ restorableCount }} 个可恢复文件 · 共 {{ fmtSize(checkedSize) }}</span>
         <div class="foot-actions">
+          <el-button link size="small" :disabled="sending || allSelected" @click="selectAll">全选</el-button>
+          <el-button link size="small" :disabled="sending || !checked.size" @click="selectNone">全不选</el-button>
           <el-button :disabled="sending" @click="emit('update:modelValue', false)">取消</el-button>
           <el-button
             type="primary"
