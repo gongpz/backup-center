@@ -481,6 +481,9 @@ class AgentController extends Controller
             'backup_at'   => ['required', 'date'],
             'status'      => ['nullable', 'string'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
+            // 任务编码：self_backup 指令 ID（一次指令的 web+db 带同一编码，按编码精确分组）；
+            // external 扫描上报不带此字段
+            'batch_code'  => ['nullable', 'string', 'max:64'],
         ]);
 
         /** @var Server $server */
@@ -533,6 +536,9 @@ class AgentController extends Controller
                 $fullPath,
                 $website->backup_paths ?: []
             ),
+            // 任务编码：self_backup 指令 ID；重报不带该字段时保留原值（不擦掉）。
+            // external 扫描上报无编码 → ''，恢复页走「类型配对 + 窗口」分组。
+            'batch_code'       => $data['batch_code'] ?? $log->batch_code ?? '',
             'size'             => $data['size']       ?? $log->size,
             'status'           => $status,
             'backup_at'        => $data['backup_at'],

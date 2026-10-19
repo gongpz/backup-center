@@ -115,6 +115,7 @@ class RestoreController extends Controller
                 'full_path' => $log->full_path,
                 'size' => $log->size,
                 'backup_at' => $at?->toIso8601String(),
+                'batch_code' => (string) ($log->batch_code ?? ''),
                 'restorable' => (bool) $latest,
                 'latest_upload' => $latest ? [
                     'id' => $latest->id,
@@ -199,30 +200,43 @@ class RestoreController extends Controller
     }
 
     /**
-     * 把文件列表合并成「备份套件」：类型配对 + 窗口兜底。
+     * 把文件列表合并成「备份套件」：任务编码优先，无编码走类型配对 + 窗口兜底。
      *
-     * 一次备份的语义 = 1 个网站目录包 + 1 个数据库包。合并策略：
-     *   ① 配对：每个 website 文件找窗口内时间最近的未配对 database 文件成组。
-     *      自主备份两文件 backup_at 相同（Agent 一次运行只取一个时间戳，0s）；
-     *      宝塔 external 的 web/db 两个计划任务先后执行，间隔 8–45s。
-     *      按类型一对一配对，两场备份间隔再近也不会串味——旧纯时间窗口
-     *      会把 4 分钟外的两场糊成一组（用户明确担心的风险）。
-     *   ② 兜底：没配上对的文件（仅数据库的网站、单个网站包、其他类型文件）
-     *      按窗口归并；与组内最早文件比较，防链式合并。
-     *   ③ 组内文件按 backup_at 倒序；suite_id 取组内最新文件（与旧约定一致，
+     * 合并策略（按信号强度从强到弱）：
+     *   ① 任务编码：batch_code 非空（self_backup 指令 ID，未来的增量任务同规则）
+     *      → 同编码精确成组。一次 self_backup 指令 = Agent 完整跑一次，同编码必同
+     *      场次、不同编码必不同场次，零时间猜测——纯窗口会把间隔几分钟的两场手动
+     *      备份糊成一组（用户生产实测踩过）。
+     *   ② 类型配对：无编码文件（宝塔 external 扫描发现）每个 website 文件配窗口内
+     *      时间最近的未配对 database 文件。宝塔 web/db 两个计划任务先后执行，间隔
+     *      8–45s；自主备份两文件 backup_at 同秒。
+     *   ③ 窗口兜底：没配上对的文件按窗口归并；与组内最早文件比较，防链式合并。
+     *   ④ 组内文件按 backup_at 倒序；suite_id 取组内最新文件（与旧约定一致，
      *      前端 Vue key 依赖其稳定性）；套件之间也按最新文件倒序。
      *
-     * @param array $files         file 数组（含 type/backup_at/backup_log_id），顺序不限
+     * @param array $files         file 数组（含 type/backup_at/batch_code/backup_log_id），顺序不限
      * @param int   $windowSeconds 合并窗口（秒）
      */
     private function buildSuites(array $files, int $windowSeconds): array
     {
         $ts = fn (?string $iso): int => $iso ? Carbon::parse($iso)->getTimestamp() : 0;
 
-        $webs = array_values(array_filter($files, fn ($f) => $f['type'] === 'website'));
-        $dbs = array_values(array_filter($files, fn ($f) => $f['type'] === 'database'));
+        // ① 有任务编码 → 按编码精确分组（编码内保持倒序）
+        $coded = [];
+        $uncoded = [];
+        foreach ($files as $f) {
+            $code = (string) ($f['batch_code'] ?? '');
+            if ($code !== '') {
+                $coded[$code][] = $f;
+            } else {
+                $uncoded[] = $f;
+            }
+        }
 
-        // ① website × database 就近配对（窗口内；并列取较新者，$dbs 保持倒序）
+        // ② 无编码 → 类型配对
+        $webs = array_values(array_filter($uncoded, fn ($f) => $f['type'] === 'website'));
+        $dbs = array_values(array_filter($uncoded, fn ($f) => $f['type'] === 'database'));
+
         $groups = [];
         $usedDb = [];
         foreach ($webs as $w) {
@@ -246,14 +260,14 @@ class RestoreController extends Controller
             }
         }
 
-        // ② 兜底：未配对 db + 非 website/database 文件，按窗口归并（倒序 + 防链式）
+        // ③ 窗口兜底：未配对 db + 非 website/database 文件
         $leftovers = [];
         foreach ($dbs as $i => $d) {
             if (! isset($usedDb[$i])) {
                 $leftovers[] = $d;
             }
         }
-        foreach ($files as $f) {
+        foreach ($uncoded as $f) {
             if (! in_array($f['type'], ['website', 'database'], true)) {
                 $leftovers[] = $f;
             }
@@ -276,9 +290,10 @@ class RestoreController extends Controller
                 $leftoverGroups[] = [$f];
             }
         }
-        $groups = array_merge($groups, $leftoverGroups);
 
-        // ③ 组内倒序 + 套件倒序（新→旧）
+        $groups = array_merge(array_values($coded), $groups, $leftoverGroups);
+
+        // ④ 组内倒序 + 套件倒序（新→旧）
         $suites = [];
         foreach ($groups as $group) {
             usort($group, fn ($a, $b) => $ts($b['backup_at']) <=> $ts($a['backup_at']));

@@ -29,7 +29,9 @@ import (
 // AgentVersion 随修复 bump：面板据版本号变化判断是否需要自更新。
 // 0.14.4：performAdvancedWebRestore 解压加 --unlink-first，
 //         修复宝塔 .user.ini 触发 GNU tar EEXIST 导致恢复「假失败」（exit 2）。
-const AgentVersion = "0.14.4"
+// 0.14.5：自主备份上报 task batch_code（self_backup 指令 ID），
+//         Center 据此对高级模式备份按编码精确分组，不再依赖时间窗口。
+const AgentVersion = "0.14.5"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -1201,6 +1203,10 @@ func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID i
 		Size:      size,
 		BackupAt:  backupAt.Format(time.RFC3339),
 		Status:    "success",
+		// 任务编码 = self_backup 指令 ID：同一次指令产出的 web+db 带同一编码，
+		// Center 按编码精确分组（一次指令 = 一场备份，零时间窗口猜测）。
+		// 本函数只被 performSelfBackup 调用（web/db 各一次，cmdID 相同）。
+		BatchCode: strconv.FormatInt(cmdID, 10),
 	})
 	if err != nil {
 		return fmt.Errorf("上报备份记录失败: %w", err)

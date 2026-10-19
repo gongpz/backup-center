@@ -29,6 +29,7 @@ class BackupLogResource extends JsonResource
             ]),
             'filename' => $this->filename,
             'full_path' => $this->full_path,
+            'batch_code' => $this->batch_code,
             'size' => $this->size,
             'status' => $this->status,
             'error_message' => $this->error_message,

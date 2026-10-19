@@ -183,6 +183,10 @@ type ReportRequest struct {
 	BackupAt        string `json:"backup_at"` // ISO 8601
 	Status          string `json:"status,omitempty"`
 	DurationSeconds int    `json:"duration_seconds,omitempty"`
+	// BatchCode 任务编码：self_backup 指令 ID（一次指令的 web+db 带同一编码）。
+	// Center 据此对高级模式/增量模式的备份按编码精确分组，替代时间窗口猜测。
+	// external 扫描上报不带此字段。
+	BatchCode string `json:"batch_code,omitempty"`
 }
 
 type ReportResponse struct {

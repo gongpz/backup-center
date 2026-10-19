@@ -54,7 +54,7 @@ class RestoreSuiteWindowTest extends TestCase
         ]);
     }
 
-    private function makeRestorableLog(Website $website, string $filename, Carbon $at): BackupLog
+    private function makeRestorableLog(Website $website, string $filename, Carbon $at, string $batchCode = ''): BackupLog
     {
         $storage = Storage::create([
             'name'   => '测试存储',
@@ -70,6 +70,7 @@ class RestoreSuiteWindowTest extends TestCase
             'size'       => 1024,
             'status'     => BackupLog::STATUS_SUCCESS,
             'backup_at'  => $at,
+            'batch_code' => $batchCode,
         ]);
         BackupUpload::create([
             'backup_log_id' => $log->id,
@@ -224,6 +225,58 @@ class RestoreSuiteWindowTest extends TestCase
 
         $this->assertCount(3, $suites);
         $this->assertSame('suite-' . BackupLog::where('filename', 'a-db.sql.gz')->value('id'), $suites[0]['suite_id']);
+    }
+
+    public function test_batch_code_groups_exactly_regardless_of_time(): void
+    {
+        $website = $this->makeWebsite();
+        // 两场自主备份只隔 1 分钟（在 5 分钟窗口内！）但指令编码不同 → 必须 2 个套件。
+        // 纯时间窗口会把它们糊成一组——用户担心的「窗口长了糊进别的任务」
+        $this->makeRestorableLog($website, 'r1-web.tar.gz', Carbon::now()->subMinutes(2), '101');
+        $this->makeRestorableLog($website, 'r1-db.sql.gz', Carbon::now()->subMinutes(2), '101');
+        $this->makeRestorableLog($website, 'r2-web.tar.gz', Carbon::now()->subMinutes(1), '102');
+        $this->makeRestorableLog($website, 'r2-db.sql.gz', Carbon::now()->subMinutes(1), '102');
+
+        $suites = $this->fetchSuites($website);
+
+        $this->assertCount(2, $suites);
+        // 较新场次（编码 102）在前；每组同编码 2 文件
+        $this->assertSame(['102', '102'], array_column($suites[0]['files'], 'batch_code'));
+        $this->assertSame(['101', '101'], array_column($suites[1]['files'], 'batch_code'));
+    }
+
+    public function test_batch_code_same_code_merges_across_time(): void
+    {
+        $website = $this->makeWebsite();
+        // 同一指令编码的 web+db 相隔 10 分钟（远超窗口）→ 仍为 1 个套件。
+        // 编码是确定性信号：一次 self_backup 指令产出的文件必然同场次
+        // （大库 dump 慢导致 db 上报晚于 web 是真实场景）
+        $this->makeRestorableLog($website, 'slow-web.tar.gz', Carbon::now()->subMinutes(20), '205');
+        $this->makeRestorableLog($website, 'slow-db.sql.gz', Carbon::now()->subMinutes(10), '205');
+
+        $suites = $this->fetchSuites($website);
+
+        $this->assertCount(1, $suites);
+        $this->assertCount(2, $suites[0]['files']);
+        $this->assertSame(['205', '205'], array_column($suites[0]['files'], 'batch_code'));
+    }
+
+    public function test_coded_and_uncoded_files_do_not_mix(): void
+    {
+        $website = $this->makeWebsite();
+        // 自主备份（带编码）与宝塔 external（无编码）混在同一网站：两条路径互不干扰
+        $this->makeRestorableLog($website, 'self-web.tar.gz', Carbon::now()->subMinutes(3), '301');
+        $this->makeRestorableLog($website, 'self-db.sql.gz', Carbon::now()->subMinutes(3), '301');
+        $this->makeRestorableLog($website, 'bt-web-20261019.tar.gz', Carbon::now()->subMinutes(2));
+        $this->makeRestorableLog($website, 'bt-db-20261019.sql.zip', Carbon::now()->subMinutes(2)->addSeconds(20));
+
+        $suites = $this->fetchSuites($website);
+
+        $this->assertCount(2, $suites);
+        $withCode = array_values(array_filter($suites, fn ($s) => $s['files'][0]['batch_code'] !== ''));
+        $this->assertCount(1, $withCode);
+        $this->assertCount(2, $withCode[0]['files']);
+        $this->assertSame(['301', '301'], array_column($withCode[0]['files'], 'batch_code'));
     }
 
     public function test_day_groups_only_contain_that_days_files(): void

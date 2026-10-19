@@ -151,29 +151,42 @@ const fileTypeMeta = {
   file:     { text: '备份文件', cls: 'chip-neutral' },
 }
 
-/* ---------- 备份套件分组：类型配对 + 5 分钟窗口兜底 ----------
-   与后端 RestoreController::buildSuites 同源同参。一次备份 = 1 个网站目录包
-   + 1 个数据库包：
-   ① 每个 website 文件配窗口内最近的未配对 database 文件（自主备份两文件
-      backup_at 相同；宝塔 external 两任务间隔 8–45s）；
-   ② 未配对文件按 5 分钟窗口归并（与组内最早比较，防链式合并）；
-   ③ 组内/套件按 backup_at 倒序。
+/* ---------- 备份套件分组：任务编码优先，无编码走类型配对 + 5 分钟窗口 ----------
+   与后端 RestoreController::buildSuites 同源同参：
+   ① 有 batch_code（self_backup 指令 ID）→ 按编码精确分组，不看时间。
+      一次指令 = Agent 完整跑一次 = 一场备份；两次手动备份间隔再近也各算各的。
+   ② 无编码（宝塔 external 扫描发现）→ 每个 website 文件配窗口内最近的未配对
+      database 文件（宝塔两任务间隔 8–45s）；
+   ③ 仍未配对 → 5 分钟窗口归并（与组内最早比较，防链式）；
+   ④ 组内/套件按 backup_at 倒序。
    分页场景下同组文件跨页会拆成两个套件（可接受，不为此改后端 API）。 */
 const SUITE_WINDOW_MS = 5 * 60 * 1000
 const backupTs = (row) => (row && row.backup_at ? new Date(row.backup_at).getTime() : 0)
 const groupedSuites = computed(() => {
-  // 按网站归拢（列表按 backup_at 倒序；跨网站穿插时旧算法只比相邻行会断链）
-  const bySite = new Map()
+  // ① 任务编码分组（键带 websiteId 防御；self_backup 指令天然按网站隔离）
+  const coded = new Map()
+  const uncodedBySite = new Map()
   for (const row of list.value) {
-    if (!bySite.has(row.website_id)) bySite.set(row.website_id, [])
-    bySite.get(row.website_id).push(row)
+    const code = row.batch_code || ''
+    if (code) {
+      const key = `${row.website_id}:${code}`
+      if (!coded.has(key)) coded.set(key, [])
+      coded.get(key).push(row)
+    } else {
+      if (!uncodedBySite.has(row.website_id)) uncodedBySite.set(row.website_id, [])
+      uncodedBySite.get(row.website_id).push(row)
+    }
   }
   const suites = []
-  for (const [websiteId, rows] of bySite) {
+  for (const rows of coded.values()) {
+    const sorted = [...rows].sort((a, b) => backupTs(b) - backupTs(a))
+    suites.push({ key: `suite-${sorted[0].id}`, websiteId: sorted[0].website_id, files: sorted })
+  }
+  // ② 无编码：按网站归拢 + 类型配对 + 窗口兜底
+  for (const [websiteId, rows] of uncodedBySite) {
     const sorted = [...rows].sort((a, b) => backupTs(b) - backupTs(a))
     const webs = sorted.filter((r) => fileTypeOf(r.filename) === 'website')
     const dbs = sorted.filter((r) => fileTypeOf(r.filename) === 'database')
-    // ① 类型配对
     const usedDb = new Set()
     for (const w of webs) {
       let best = -1
@@ -190,7 +203,6 @@ const groupedSuites = computed(() => {
         suites.push({ key: `suite-${w.id}`, websiteId, files: [w] })
       }
     }
-    // ② 兜底：未配对 db + 其他类型，按窗口归并
     const leftovers = [
       ...dbs.filter((_, i) => !usedDb.has(i)),
       ...sorted.filter((r) => !['website', 'database'].includes(fileTypeOf(r.filename))),

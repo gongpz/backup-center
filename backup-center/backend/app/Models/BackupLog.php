@@ -22,6 +22,7 @@ class BackupLog extends Model
         'filename',
         'full_path',
         'source_key',
+        'batch_code',
         'size',
         'status',
         'error_message',
