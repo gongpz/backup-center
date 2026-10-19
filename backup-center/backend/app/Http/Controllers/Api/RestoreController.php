@@ -89,17 +89,25 @@ class RestoreController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        // 合并窗口：backup_at 相差 ≤ 30 分钟视为同一次备份。
-        // logs 已按 backup_at 倒序（新→旧），每个文件尝试并入时间相邻的当前恢复项；
-        // 与组内最早的文件比较，保证组跨度不超过窗口（避免链式合并把不同批次串起来）。
-        $windowSeconds = 1800;
+        // 合并窗口：5 分钟。
+        // 取值依据（用户生产库 12 条真实 backup_logs 实测）：
+        //   同一场次内 web/db 间隔 ≤45s（宝塔两个计划任务先后执行；自主备份两文件
+        //   backup_at 甚至完全相同——Agent 一次运行只取一个时间戳）；
+        //   不同场次间隔 ≥600s（用户 00:55 与 01:05 两次手动自主备份）。
+        // 300s 距实测同场次上限 6.7 倍余量、距不同场次下限 2 倍余量。
+        // 旧值 1800s（30 分钟）会把间隔 10 分钟的两次备份糊成一条——用户实测踩过。
+        $windowSeconds = 300;
 
-        $suites = [];
+        // 先收集全部文件，再走「类型配对 + 窗口兜底」合并（见 buildSuites）。
+        // 旧实现是纯时间窗口一把糊：短了糊不住同场次、长了糊进别的场次，
+        // 且曾因 Carbon 3 diffInSeconds 有符号值导致窗口恒真（4265f44 修的是那个 bug，
+        // 这里换掉策略本身）。
+        $files = [];
         foreach ($logs as $log) {
             $at = $log->backup_at;
             $latest = $log->uploads->first();
 
-            $file = [
+            $files[] = [
                 'backup_log_id' => $log->id,
                 'label' => $this->fileLabel($log, $website),
                 'type' => $this->fileType((string) $log->filename),
@@ -116,32 +124,9 @@ class RestoreController extends Controller
                     'uploaded_at' => $latest->finished_at?->toIso8601String() ?? $latest->updated_at?->toIso8601String(),
                 ] : null,
             ];
-
-            $merged = false;
-            $n = count($suites);
-            if ($n > 0 && $at) {
-                $prev = $suites[$n - 1];
-                $prevFiles = $prev['files'];
-                $earliestAt = $prevFiles[count($prevFiles) - 1]['backup_at'];
-                // 注意：Carbon 3 的 diffInSeconds() 默认返回有符号值（参数更早时为负），
-                // 负数 <= 窗口恒真 → 同网站所有文件会被无上限合并成一个大套件，
-                // 恢复页出现「19日卡片混入 18/17 日记录」。必须传第二个参数 $absolute=true
-                // 取绝对值（与 app/Models/Server.php 的在线判断保持一致）。
-                if ($earliestAt && Carbon::parse($earliestAt)->diffInSeconds($at, true) <= $windowSeconds) {
-                    $prev['files'][] = $file;
-                    $suites[$n - 1] = $prev;
-                    $merged = true;
-                }
-            }
-            if (! $merged) {
-                // 新恢复项：backup_at 取组内最新文件的时间（倒序第一个加入的即最新）
-                $suites[] = [
-                    'suite_id' => 'suite-' . $log->id,
-                    'backup_at' => $at?->toIso8601String(),
-                    'files' => [$file],
-                ];
-            }
         }
+
+        $suites = $this->buildSuites($files, $windowSeconds);
 
         // 每个 backup_log 取最新一条 restore 命令（含终态，用于"已恢复"徽标）
         $latestByLog = $this->latestRestoreCommandByLog($website);
@@ -211,6 +196,101 @@ class RestoreController extends Controller
         }
 
         return response()->json(['data' => $out, 'active_commands' => $active]);
+    }
+
+    /**
+     * 把文件列表合并成「备份套件」：类型配对 + 窗口兜底。
+     *
+     * 一次备份的语义 = 1 个网站目录包 + 1 个数据库包。合并策略：
+     *   ① 配对：每个 website 文件找窗口内时间最近的未配对 database 文件成组。
+     *      自主备份两文件 backup_at 相同（Agent 一次运行只取一个时间戳，0s）；
+     *      宝塔 external 的 web/db 两个计划任务先后执行，间隔 8–45s。
+     *      按类型一对一配对，两场备份间隔再近也不会串味——旧纯时间窗口
+     *      会把 4 分钟外的两场糊成一组（用户明确担心的风险）。
+     *   ② 兜底：没配上对的文件（仅数据库的网站、单个网站包、其他类型文件）
+     *      按窗口归并；与组内最早文件比较，防链式合并。
+     *   ③ 组内文件按 backup_at 倒序；suite_id 取组内最新文件（与旧约定一致，
+     *      前端 Vue key 依赖其稳定性）；套件之间也按最新文件倒序。
+     *
+     * @param array $files         file 数组（含 type/backup_at/backup_log_id），顺序不限
+     * @param int   $windowSeconds 合并窗口（秒）
+     */
+    private function buildSuites(array $files, int $windowSeconds): array
+    {
+        $ts = fn (?string $iso): int => $iso ? Carbon::parse($iso)->getTimestamp() : 0;
+
+        $webs = array_values(array_filter($files, fn ($f) => $f['type'] === 'website'));
+        $dbs = array_values(array_filter($files, fn ($f) => $f['type'] === 'database'));
+
+        // ① website × database 就近配对（窗口内；并列取较新者，$dbs 保持倒序）
+        $groups = [];
+        $usedDb = [];
+        foreach ($webs as $w) {
+            $best = null;
+            $bestDiff = null;
+            foreach ($dbs as $i => $d) {
+                if (isset($usedDb[$i])) {
+                    continue;
+                }
+                $diff = abs($ts($w['backup_at']) - $ts($d['backup_at']));
+                if ($diff <= $windowSeconds && ($bestDiff === null || $diff < $bestDiff)) {
+                    $best = $i;
+                    $bestDiff = $diff;
+                }
+            }
+            if ($best !== null) {
+                $usedDb[$best] = true;
+                $groups[] = [$w, $dbs[$best]];
+            } else {
+                $groups[] = [$w];
+            }
+        }
+
+        // ② 兜底：未配对 db + 非 website/database 文件，按窗口归并（倒序 + 防链式）
+        $leftovers = [];
+        foreach ($dbs as $i => $d) {
+            if (! isset($usedDb[$i])) {
+                $leftovers[] = $d;
+            }
+        }
+        foreach ($files as $f) {
+            if (! in_array($f['type'], ['website', 'database'], true)) {
+                $leftovers[] = $f;
+            }
+        }
+        usort($leftovers, fn ($a, $b) => $ts($b['backup_at']) <=> $ts($a['backup_at']));
+
+        $leftoverGroups = [];
+        foreach ($leftovers as $f) {
+            $merged = false;
+            $n = count($leftoverGroups);
+            if ($n > 0) {
+                $prev = $leftoverGroups[$n - 1];
+                $earliest = $prev[count($prev) - 1]['backup_at'];
+                if ($earliest && abs($ts($earliest) - $ts($f['backup_at'])) <= $windowSeconds) {
+                    $leftoverGroups[$n - 1][] = $f;
+                    $merged = true;
+                }
+            }
+            if (! $merged) {
+                $leftoverGroups[] = [$f];
+            }
+        }
+        $groups = array_merge($groups, $leftoverGroups);
+
+        // ③ 组内倒序 + 套件倒序（新→旧）
+        $suites = [];
+        foreach ($groups as $group) {
+            usort($group, fn ($a, $b) => $ts($b['backup_at']) <=> $ts($a['backup_at']));
+            $suites[] = [
+                'suite_id' => 'suite-' . $group[0]['backup_log_id'],
+                'backup_at' => $group[0]['backup_at'],
+                'files' => $group,
+            ];
+        }
+        usort($suites, fn ($a, $b) => $ts($b['backup_at']) <=> $ts($a['backup_at']));
+
+        return $suites;
     }
 
     /**

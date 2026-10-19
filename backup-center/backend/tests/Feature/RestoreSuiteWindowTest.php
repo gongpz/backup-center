@@ -14,18 +14,17 @@ use Illuminate\Http\Request;
 use Tests\TestCase;
 
 /**
- * 恢复页套件合并窗口回归测试（RestoreController::backups）。
+ * 恢复页套件合并回归测试（RestoreController::backups / buildSuites）。
  *
- * 历史 bug：合并条件用了 Carbon 3 的 diffInSeconds() 但不传 $absolute=true。
- * Carbon 3 的 diffInSeconds() 默认返回**有符号值**（参数更早时为负），负数 <= 1800 恒真，
- * 导致同网站所有文件被无上限合并成一个大套件；旧版日期分组按套件头（最新文件）分日期，
- * 于是「10月19日」卡片里混入 18/17/15 日的全部记录（用户生产实测截图）。
+ * 策略演进：
+ * 1. 旧版纯 30 分钟时间窗口 + Carbon 3 diffInSeconds 有符号值 bug → 窗口恒真，
+ *    同网站全部文件并成一个大套件，「19日卡片混入 18/17 日记录」（4265f44 修 bug）；
+ * 2. 现行策略「类型配对 + 5 分钟窗口兜底」：一次备份 = 1 个网站目录包 + 1 个数据库包，
+ *    先按类型一对一配对，配不上的按窗口归并。窗口 300s 的依据（用户生产库实测）：
+ *    同场次 web/db 间隔 ≤45s（宝塔两任务先后跑；自主备份两文件同秒），
+ *    不同场次间隔 ≥600s（00:55 / 01:05 两次手动自主备份）。
  *
- * 数据形态取自用户生产库真实 12 条记录（docker exec bc-app tinker 输出），
- * 日期改为相对生成以保证测试随时间稳定：
- *   今天 01:05 ×2、今天 00:55 ×2（self 备份，10 分钟间隔 → 30 分钟窗口内正确合并）
- *   昨天 04:41 ×2、昨天 03:05 ×2（external 两场，间隔 96 分钟 → 不得合并）
- *   2 天前 09:19 ×2、4 天前 15:00 ×2（external，跨天 → 绝不得合并）
+ * 数据形态取自用户生产库真实 12 条记录，日期改为相对生成保证测试随时间稳定。
  */
 class RestoreSuiteWindowTest extends TestCase
 {
@@ -82,42 +81,57 @@ class RestoreSuiteWindowTest extends TestCase
         return $log;
     }
 
-    /** 造出与生产库同构的 10 条记录（5 场备份 × web+db） */
+    /**
+     * 造出与生产库同构的 6 场备份（每场 web+db）：
+     *   今天 01:05 / 00:55（self，两文件同秒；两场间隔 10 分钟 → 必须分开）
+     *   昨天 04:41 / 03:05（external，db 比 web 晚 8s / 20s；两场间隔 96 分钟）
+     *   2 天前 09:19（db 晚 11s）、4 天前 15:00（db 晚 45s，跨分钟边界）
+     */
     private function seedProductionShape(Website $website): void
     {
         $batches = [
-            [Carbon::today()->setTime(1, 5, 31), 'site-web-010531.tar.gz', 'site-db-010531.sql.gz'],
-            [Carbon::today()->setTime(0, 55, 31), 'site-web-005531.tar.gz', 'site-db-005531.sql.gz'],
-            [Carbon::yesterday()->setTime(4, 41, 46), 'site-web-20261018_044137.tar.gz', 'site-db-20261018_044146.sql.zip'],
-            [Carbon::yesterday()->setTime(3, 5, 37), 'site-web-20261018_030516.tar.gz', 'site-db-20261018_030537.sql.zip'],
-            [Carbon::now()->subDays(2)->setTime(9, 19, 49), 'site-web-20261017_091937.tar.gz', 'site-db-20261017_091949.sql.zip'],
-            [Carbon::now()->subDays(4)->setTime(15, 1, 35), 'site-web-20261015_150050.tar.gz', 'site-db-20261015_150135.sql.zip'],
+            [Carbon::today()->setTime(1, 5, 31), 0,  'site-web-010531.tar.gz',               'site-db-010531.sql.gz'],
+            [Carbon::today()->setTime(0, 55, 31), 0,  'site-web-005531.tar.gz',               'site-db-005531.sql.gz'],
+            [Carbon::yesterday()->setTime(4, 41, 38), 8,  'hi.imask.cc_20261018_044137.tar.gz', 'hiimask_2026-10-18_04-41-45_mysql_data_wbaLN.sql.zip'],
+            [Carbon::yesterday()->setTime(3, 5, 17), 20, 'hi.imask.cc_20261018_030516.tar.gz', 'hiimask_2026-10-18_03-05-37_mysql_data_NWJvx.sql.zip'],
+            [Carbon::now()->subDays(2)->setTime(9, 19, 38), 11, 'hi.imask.cc_20261017_091937.tar.gz', 'hiimask_2026-10-17_09-19-48_mysql_data_uyeyg.sql.zip'],
+            [Carbon::now()->subDays(4)->setTime(15, 0, 50), 45, 'hi.imask.cc_20261015_150050.tar.gz', 'hiimask_2026-10-15_15-01-35_mysql_data_UvYtQ.sql.zip'],
         ];
-        foreach ($batches as [$at, $web, $db]) {
+        foreach ($batches as [$at, $gap, $web, $db]) {
             $this->makeRestorableLog($website, $web, $at);
-            $this->makeRestorableLog($website, $db, $at->copy()->subSecond());
+            $this->makeRestorableLog($website, $db, $at->copy()->addSeconds($gap));
         }
     }
 
-    public function test_window_merges_same_batch_but_never_crosses_days(): void
+    private function fetchGroups(Website $website): array
     {
-        $website = $this->makeWebsite();
-        $this->seedProductionShape($website);
-
         $resp = (new RestoreController())->backups(new Request([
             'website_id' => $website->id,
             'range'      => 'month',
         ]));
         $this->assertSame(200, $resp->getStatusCode());
-        $groups = $resp->getData(true)['data'];
 
-        // 全部套件（跨日期组汇总）
-        $suites = collect($groups)->pluck('suites')->flatten(1)->all();
+        return $resp->getData(true)['data'];
+    }
 
-        // 核心回归：合并窗口不得把跨天文件串成一个套件。
-        // bug 存在时这里只有 1 个套件且包含全部 12 个文件。
-        $this->assertCount(5, $suites, '30 分钟窗口应产出 5 个套件（今天 1 + 昨天 2 + 2 天前 1 + 4 天前 1）');
+    private function fetchSuites(Website $website): array
+    {
+        return collect($this->fetchGroups($website))->pluck('suites')->flatten(1)->all();
+    }
+
+    public function test_production_shape_yields_one_suite_per_batch(): void
+    {
+        $website = $this->makeWebsite();
+        $this->seedProductionShape($website);
+
+        $suites = $this->fetchSuites($website);
+
+        // 6 场备份 = 6 个套件（旧 30 分钟窗口会把今天两场糊成 1 个 → 只有 5 个套件）
+        $this->assertCount(6, $suites);
+
         foreach ($suites as $suite) {
+            // 每个套件恰好 web+db 一对，且不跨天
+            $this->assertCount(2, $suite['files'], 'suite_id=' . $suite['suite_id']);
             $dates = array_unique(array_map(
                 fn ($f) => Carbon::parse($f['backup_at'])->format('Y-m-d'),
                 $suite['files']
@@ -125,54 +139,113 @@ class RestoreSuiteWindowTest extends TestCase
             $this->assertCount(1, $dates, '单个套件不得跨天；suite_id=' . $suite['suite_id']);
         }
 
-        // 今天：两场 self 备份间隔 10 分钟 ≤ 窗口 → 合并为 1 个套件 4 个文件
-        $today = Carbon::today()->format('Y-m-d');
-        $todayGroup = collect($groups)->firstWhere('date', $today);
-        $this->assertNotNull($todayGroup);
-        $this->assertCount(1, $todayGroup['suites']);
-        $this->assertSame(4, $todayGroup['suites'][0]['total_count']);
+        // match：自主备份两文件 backup_at 同秒 → exact；宝塔 external 间隔 8–45s → window
+        $this->assertSame('exact', $suites[0]['match']);  // 今天 01:05
+        $this->assertSame('exact', $suites[1]['match']);  // 今天 00:55
+        $this->assertSame('window', $suites[2]['match']); // 昨天 04:41（db 晚 8s）
+        $this->assertSame('window', $suites[5]['match']); // 4 天前 15:00（db 晚 45s）
 
-        // 昨天：两场 external 间隔 96 分钟 > 窗口 → 2 个套件各 2 个文件
-        $yesterday = Carbon::yesterday()->format('Y-m-d');
-        $yGroup = collect($groups)->firstWhere('date', $yesterday);
-        $this->assertCount(2, $yGroup['suites']);
-        $this->assertSame(2, $yGroup['suites'][0]['total_count']);
-        $this->assertSame(2, $yGroup['suites'][1]['total_count']);
+        // 今天：两场 self 备份间隔 10 分钟 > 窗口 → 2 个套件（用户核心诉求）
+        $todayGroup = collect($this->fetchGroups($website))->firstWhere('date', Carbon::today()->format('Y-m-d'));
+        $this->assertCount(2, $todayGroup['suites']);
+        $this->assertSame(2, $todayGroup['suites'][0]['total_count']);
+        $this->assertSame(2, $todayGroup['suites'][1]['total_count']);
 
-        // 日期组键正确且倒序（新→旧），共 4 天（data 是列表，date 在各元素内）
-        $this->assertSame([
-            $today,
-            $yesterday,
-            Carbon::now()->subDays(2)->format('Y-m-d'),
-            Carbon::now()->subDays(4)->format('Y-m-d'),
-        ], array_column($groups, 'date'));
+        // 套件倒序：最新场次（今天 01:05）在最前
+        $this->assertSame('01:05:31', Carbon::parse($suites[0]['backup_at'])->format('H:i:s'));
+    }
 
-        // 每个日期组只包含当天文件（文件级归属，f7e2bc0 的防御逻辑仍然生效）
-        foreach ($groups as $group) {
-            $date = $group['date'];
-            foreach ($group['suites'] as $suite) {
-                foreach ($suite['files'] as $f) {
-                    $this->assertSame($date, Carbon::parse($f['backup_at'])->format('Y-m-d'));
-                }
-            }
+    public function test_type_pairing_separates_two_close_runs(): void
+    {
+        $website = $this->makeWebsite();
+        // 两场备份只隔 4 分钟：旧纯 5 分钟窗口会把 4 个文件全糊成一组（用户担心的风险），
+        // 类型配对按 web↔db 一对一，两场互不串味
+        $this->makeRestorableLog($website, 'a-web.tar.gz', Carbon::now()->subMinutes(8));
+        $this->makeRestorableLog($website, 'a-db.sql.gz', Carbon::now()->subMinutes(8)->addSeconds(10));
+        $this->makeRestorableLog($website, 'b-web.tar.gz', Carbon::now()->subMinutes(4));
+        $this->makeRestorableLog($website, 'b-db.sql.gz', Carbon::now()->subMinutes(4)->addSeconds(10));
+
+        $suites = $this->fetchSuites($website);
+
+        $this->assertCount(2, $suites);
+        foreach ($suites as $suite) {
+            $this->assertCount(2, $suite['files']);
+            // 每组都是一 web 一 db，不串味
+            $this->assertTrue(
+                (str_contains($suite['files'][0]['filename'], 'web') && str_contains($suite['files'][1]['filename'], 'db'))
+                || (str_contains($suite['files'][0]['filename'], 'db') && str_contains($suite['files'][1]['filename'], 'web'))
+            );
         }
+        // 较新场次（b）在前
+        $this->assertSame('suite-' . BackupLog::where('filename', 'b-db.sql.gz')->value('id'), $suites[0]['suite_id']);
+    }
+
+    public function test_db_only_website_groups_leftovers_by_window(): void
+    {
+        $website = $this->makeWebsite();
+        // 仅数据库的网站：无 web 可配对，db 走窗口兜底
+        $this->makeRestorableLog($website, 'db-1.sql.gz', Carbon::now()->subMinutes(20));
+        $this->makeRestorableLog($website, 'db-2.sql.gz', Carbon::now()->subMinutes(17)); // 距上一场 3 分钟 → 合并
+        $this->makeRestorableLog($website, 'db-3.sql.gz', Carbon::now()->subMinutes(7));  // 距组内最早 13 分钟 → 独立
+
+        $suites = $this->fetchSuites($website);
+
+        // 套件按组内最新文件倒序：db-3（7 分钟前）最近 → 在最前；
+        // db-1 + db-2 相隔 3 分钟 ≤ 窗口 → 合并为第二组
+        $this->assertCount(2, $suites);
+        $this->assertCount(1, $suites[0]['files']); // db-3
+        $this->assertCount(2, $suites[1]['files']); // db-2 + db-1
+        $this->assertSame('suite-' . BackupLog::where('filename', 'db-3.sql.gz')->value('id'), $suites[0]['suite_id']);
+    }
+
+    public function test_pairing_survives_minute_boundary(): void
+    {
+        $website = $this->makeWebsite();
+        // 宝塔真实形态：web 15:00:50 + db 15:01:35，跨分钟边界 45s
+        $this->makeRestorableLog($website, 'site-web-150050.tar.gz', Carbon::now()->subMinutes(30)->setTime(15, 0, 50));
+        $this->makeRestorableLog($website, 'site-db-150135.sql.gz', Carbon::now()->subMinutes(30)->setTime(15, 1, 35));
+
+        $suites = $this->fetchSuites($website);
+
+        $this->assertCount(1, $suites);
+        $this->assertCount(2, $suites[0]['files']);
     }
 
     public function test_single_file_suite_is_not_merged_with_far_older_file(): void
     {
         $website = $this->makeWebsite();
-        // 同一小时内两文件 → 合并；3 小时前的文件 → 独立套件
+        // web 与 db 相距 6 分钟 > 5 分钟窗口 → 不配对，各自单文件成组；
+        // old-web 距两者都远超窗口 → 第三个组
         $this->makeRestorableLog($website, 'a-web.tar.gz', Carbon::now()->subMinutes(10));
-        $this->makeRestorableLog($website, 'a-db.sql.gz', Carbon::now()->subMinutes(5));
+        $this->makeRestorableLog($website, 'a-db.sql.gz', Carbon::now()->subMinutes(4));
         $this->makeRestorableLog($website, 'old-web.tar.gz', Carbon::now()->subHours(3));
 
-        $resp = (new RestoreController())->backups(new Request(['website_id' => $website->id]));
-        $suites = collect($resp->getData(true)['data'])->pluck('suites')->flatten(1)->all();
+        $suites = $this->fetchSuites($website);
 
-        $this->assertCount(2, $suites);
-        $this->assertCount(2, $suites[0]['files']);
-        $this->assertCount(1, $suites[1]['files']);
-        // suite_id 取组内最新文件（a-db 比 a-web 新 5 分钟，倒序第一个入组）
+        $this->assertCount(3, $suites);
         $this->assertSame('suite-' . BackupLog::where('filename', 'a-db.sql.gz')->value('id'), $suites[0]['suite_id']);
+    }
+
+    public function test_day_groups_only_contain_that_days_files(): void
+    {
+        $website = $this->makeWebsite();
+        $this->seedProductionShape($website);
+
+        $groups = $this->fetchGroups($website);
+
+        $this->assertSame([
+            Carbon::today()->format('Y-m-d'),
+            Carbon::yesterday()->format('Y-m-d'),
+            Carbon::now()->subDays(2)->format('Y-m-d'),
+            Carbon::now()->subDays(4)->format('Y-m-d'),
+        ], array_column($groups, 'date'));
+
+        foreach ($groups as $group) {
+            foreach ($group['suites'] as $suite) {
+                foreach ($suite['files'] as $f) {
+                    $this->assertSame($group['date'], Carbon::parse($f['backup_at'])->format('Y-m-d'));
+                }
+            }
+        }
     }
 }

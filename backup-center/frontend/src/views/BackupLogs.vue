@@ -135,31 +135,81 @@ const fmtDuration = (sec) => {
   return s ? `${m}m ${s}s` : `${m}m`
 }
 
-/* ---------- 备份套件分组：同网站 + backup_at 相差 ≤30 分钟 = 同一次备份 ----------
-   与后端 RestoreController 的 suite 合并同源：list 按 backup_at 倒序，倒序遍历，
-   每个文件尝试并入最后一个（当前最旧）套件，与组内最早文件比较（防链式合并）。
+// 文件类型（与后端 RestoreController::fileType 同规则）：
+// .sql / .sql.gz / .sql.zip → 数据库；.tar.gz / .zip → 网站目录；其他 → 备份文件。
+// 宝塔 external 文件名无 -web-/-db- 标记（hi.imask.cc_20261018_044137.tar.gz），
+// 旧规则把它们全判成 file，chip 展示与套件配对都失真，故按扩展名判定。
+const fileTypeOf = (filename) => {
+  const n = String(filename || '')
+  if (/\.sql(\.|$)/i.test(n)) return 'database'
+  if (/\.(tar\.gz|zip)$/i.test(n)) return 'website'
+  return 'file'
+}
+const fileTypeMeta = {
+  website:  { text: '网站目录', cls: 'chip-blue' },
+  database: { text: '数据库',   cls: 'chip-purple' },
+  file:     { text: '备份文件', cls: 'chip-neutral' },
+}
+
+/* ---------- 备份套件分组：类型配对 + 5 分钟窗口兜底 ----------
+   与后端 RestoreController::buildSuites 同源同参。一次备份 = 1 个网站目录包
+   + 1 个数据库包：
+   ① 每个 website 文件配窗口内最近的未配对 database 文件（自主备份两文件
+      backup_at 相同；宝塔 external 两任务间隔 8–45s）；
+   ② 未配对文件按 5 分钟窗口归并（与组内最早比较，防链式合并）；
+   ③ 组内/套件按 backup_at 倒序。
    分页场景下同组文件跨页会拆成两个套件（可接受，不为此改后端 API）。 */
-const SUITE_WINDOW_MS = 30 * 60 * 1000
+const SUITE_WINDOW_MS = 5 * 60 * 1000
+const backupTs = (row) => (row && row.backup_at ? new Date(row.backup_at).getTime() : 0)
 const groupedSuites = computed(() => {
-  const suites = []
+  // 按网站归拢（列表按 backup_at 倒序；跨网站穿插时旧算法只比相邻行会断链）
+  const bySite = new Map()
   for (const row of list.value) {
-    const at = row.backup_at ? new Date(row.backup_at).getTime() : null
-    const last = suites[suites.length - 1]
-    if (last && last.websiteId === row.website_id && at) {
-      const earliest = Math.min(
-        ...last.files.map((f) => (f.backup_at ? new Date(f.backup_at).getTime() : at)),
-      )
-      if (Math.abs(earliest - at) <= SUITE_WINDOW_MS) {
-        last.files.push(row)
-        continue
+    if (!bySite.has(row.website_id)) bySite.set(row.website_id, [])
+    bySite.get(row.website_id).push(row)
+  }
+  const suites = []
+  for (const [websiteId, rows] of bySite) {
+    const sorted = [...rows].sort((a, b) => backupTs(b) - backupTs(a))
+    const webs = sorted.filter((r) => fileTypeOf(r.filename) === 'website')
+    const dbs = sorted.filter((r) => fileTypeOf(r.filename) === 'database')
+    // ① 类型配对
+    const usedDb = new Set()
+    for (const w of webs) {
+      let best = -1
+      let bestDiff = Infinity
+      dbs.forEach((d, i) => {
+        if (usedDb.has(i)) return
+        const diff = Math.abs(backupTs(w) - backupTs(d))
+        if (diff <= SUITE_WINDOW_MS && diff < bestDiff) { best = i; bestDiff = diff }
+      })
+      if (best >= 0) {
+        usedDb.add(best)
+        suites.push({ key: `suite-${w.id}`, websiteId, files: [w, dbs[best]] })
+      } else {
+        suites.push({ key: `suite-${w.id}`, websiteId, files: [w] })
       }
     }
-    suites.push({ key: `suite-${row.id}`, websiteId: row.website_id, files: [row] })
+    // ② 兜底：未配对 db + 其他类型，按窗口归并
+    const leftovers = [
+      ...dbs.filter((_, i) => !usedDb.has(i)),
+      ...sorted.filter((r) => !['website', 'database'].includes(fileTypeOf(r.filename))),
+    ]
+    const groups = []
+    for (const f of leftovers) {
+      const last = groups[groups.length - 1]
+      if (last && Math.abs(Math.min(...last.map(backupTs)) - backupTs(f)) <= SUITE_WINDOW_MS) {
+        last.push(f)
+      } else {
+        groups.push([f])
+      }
+    }
+    for (const g of groups) suites.push({ key: `suite-${g[0].id}`, websiteId, files: g })
   }
-  return suites
+  return suites.sort((a, b) => backupTs(b.files[0]) - backupTs(a.files[0]))
 })
 
-// 聚合展示：状态/上传状态「最坏优先」；时间/网站取组内最新（list 倒序，第一个最新）
+// 聚合展示：状态/上传状态「最坏优先」；时间/网站取组内最新（组内已倒序，第一个最新）
 const suiteRows = computed(() =>
   groupedSuites.value.map((s) => {
     const files = s.files
@@ -191,19 +241,6 @@ const suiteRows = computed(() =>
     }
   }),
 )
-
-// 文件类型（与恢复页 chip 语义一致）：网站目录 / 数据库 / 其他备份文件
-const fileTypeOf = (filename) => {
-  const n = String(filename || '')
-  if (n.includes('-web-') && n.endsWith('.tar.gz')) return 'website'
-  if (n.includes('-db-') && n.endsWith('.sql.gz')) return 'database'
-  return 'file'
-}
-const fileTypeMeta = {
-  website:  { text: '网站目录', cls: 'chip-blue' },
-  database: { text: '数据库',   cls: 'chip-purple' },
-  file:     { text: '备份文件', cls: 'chip-neutral' },
-}
 
 /* ---------- 详情弹窗 ---------- */
 const detailOpen = ref(false)
