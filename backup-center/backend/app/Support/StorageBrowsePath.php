@@ -126,11 +126,26 @@ class StorageBrowsePath
     }
 
     /**
+     * 目录 + 相对段拼接（S3 的 base 无前导斜杠，非 S3 保留）：
+     * base 为空（远端根）时原样返回相对段；否则 rtrim 后拼一段。
+     */
+    public static function join(string $base, string $relative): string
+    {
+        $relative = ltrim($relative, '/');
+        $base = rtrim($base, '/');
+        return $base === '' ? $relative : $base . '/' . $relative;
+    }
+
+    /**
      * lsjson 原始条目 → 前端条目：目录优先、同组按名称排序；截断至 $limit。
+     *
+     * $base 是当前所列目录（规范化后的远端路径）。rclone lsjson 官方文档明确：
+     * 不加 --recursive 时 "the Path will always be the same as Name" —— 拿到的只是
+     * 条目名，必须把 $base 拼回，前端下钻传 path 才能定位到正确层级。
      *
      * @return array{entries: list<array>, dir_count: int, file_count: int, truncated: bool}
      */
-    public static function parseEntries(array $raw, int $limit = 500): array
+    public static function parseEntries(array $raw, string $base = '', int $limit = 500): array
     {
         $dirs = [];
         $files = [];
@@ -142,10 +157,12 @@ class StorageBrowsePath
             $name = (string) ($item['Name'] ?? '');
             $path = (string) ($item['Path'] ?? '');
             $isDir = (bool) ($item['IsDir'] ?? false);
+            // lsjson 对单层列目录时 Path 可能为空串，用 Name 兜底
+            $relative = $path !== '' ? $path : $name;
             $entry = [
                 'name'     => $name,
-                // lsjson 对单层列目录时 Path 可能为空串，用 Name 兜底
-                'path'     => $path !== '' ? $path : $name,
+                // 拼回当前目录：Path 只是相对所列目录的名字（无 --recursive 时 === Name）
+                'path'     => self::join($base, $relative),
                 'is_dir'   => $isDir,
                 // 目录的 Size 忽略（lsjson 常给 -1）
                 'size'     => $isDir ? null : (int) ($item['Size'] ?? 0),

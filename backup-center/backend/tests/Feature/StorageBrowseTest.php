@@ -186,12 +186,40 @@ class StorageBrowseTest extends TestCase
             $raw[] = ['Path' => 'f' . $i, 'Name' => 'f' . $i, 'Size' => 1, 'IsDir' => false];
         }
 
-        $r = StorageBrowsePath::parseEntries($raw, 500);
+        $r = StorageBrowsePath::parseEntries($raw, '', 500);
 
         $this->assertTrue($r['truncated']);
         $this->assertCount(500, $r['entries']);
         // 计数记全量，不随截断丢失
         $this->assertSame(501, $r['file_count']);
+    }
+
+    public function test_parse_entries_prefixes_current_dir_for_navigation(): void
+    {
+        // rclone lsjson 官方文档：不加 --recursive 时 "the Path will always be the
+        // same as Name" —— 后端必须把当前目录拼回，否则前端下钻只能拿到裸名字，
+        // 重新请求会定位到错误层级。mock 演示树同口径（完整路径）。
+        $raw = [
+            ['Path' => '20261018-020000', 'Name' => '20261018-020000', 'IsDir' => true, 'Size' => -1],
+            ['Path' => 'db.sql.gz', 'Name' => 'db.sql.gz', 'IsDir' => false, 'Size' => 100],
+        ];
+
+        // SFTP：base 保留前导斜杠
+        $r = StorageBrowsePath::parseEntries($raw, '/backup/官网主页');
+        $this->assertSame('/backup/官网主页/20261018-020000', $r['entries'][0]['path']);
+        $this->assertSame('/backup/官网主页/db.sql.gz', $r['entries'][1]['path']);
+
+        // S3：base 无前导斜杠
+        $r2 = StorageBrowsePath::parseEntries($raw, 'bc-backups');
+        $this->assertSame('bc-backups/20261018-020000', $r2['entries'][0]['path']);
+
+        // base 为空（远端根）→ 原样返回相对段
+        $r3 = StorageBrowsePath::parseEntries($raw, '');
+        $this->assertSame('20261018-020000', $r3['entries'][0]['path']);
+
+        // join 的边界：base 带尾斜杠 / 相对段带前导斜杠都不重复拼
+        $this->assertSame('/backup/x', StorageBrowsePath::join('/backup/', '/x'));
+        $this->assertSame('x', StorageBrowsePath::join('', 'x'));
     }
 
     /* ---------------- RcloneConfBuilder ---------------- */

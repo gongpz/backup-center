@@ -95,8 +95,19 @@ class StorageFileController extends Controller
                 ]);
             }
 
-            // 8) 成功：转成前端条目结构（目录优先 / 排序 / 500 条截断）
-            $parsed = StorageBrowsePath::parseEntries(json_decode(implode("\n", $output), true) ?: [], 500);
+            // 8) 成功：转成前端条目结构（目录优先 / 排序 / 500 条截断）。
+            //    条目 path 拼上当前目录：lsjson 无 --recursive 时 Path 只是裸名字，
+            //    前端下钻要拿完整远端路径重新请求（parseEntries 内拼接）。
+            $decoded = json_decode(implode("\n", $output), true);
+            if (! is_array($decoded)) {
+                // 2>&1 混入的 NOTICE 行可能污染 JSON——解析失败时明确报错，
+                // 绝不静默显示「空目录」（那会让用户误以为没有备份）
+                return response()->json([
+                    'ok'      => false,
+                    'message' => '目录列表解析失败（rclone 输出异常，请重试或检查存储连接）',
+                ]);
+            }
+            $parsed = StorageBrowsePath::parseEntries($decoded, $path, 500);
 
             // 9) best-effort 递归用量统计：失败或超时只降级 null，不影响主响应
             [$recursiveSize, $recursiveCount] = $this->recursiveStats($confPath, $target);
