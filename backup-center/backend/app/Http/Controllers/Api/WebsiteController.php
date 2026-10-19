@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\WebsiteResource;
 use App\Models\Server;
+use App\Models\Storage;
 use App\Models\Website;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,7 @@ class WebsiteController extends Controller
         if (array_key_exists('db_password', $data) && ($data['db_password'] === '' || $data['db_password'] === null)) {
             unset($data['db_password']);
         }
+        $this->validateIncrementalConfig($data);
         $storageIds = $this->extractStorageIds($data);
 
         $website = Website::create($data);
@@ -75,6 +77,11 @@ class WebsiteController extends Controller
         if (array_key_exists('db_password', $data) && ($data['db_password'] === '' || $data['db_password'] === null)) {
             unset($data['db_password']);
         }
+        // 局部更新兼容：用「库中现值 ∪ 本次提交」取生效值做交叉校验
+        $this->validateIncrementalConfig(array_merge(
+            $website->only(['backup_source', 'backup_mode', 'incremental_storage_id']),
+            $data,
+        ));
         $storageIds = $this->extractStorageIds($data);
 
         $website->update($data);
@@ -171,6 +178,48 @@ class WebsiteController extends Controller
     }
 
     /**
+     * 增量备份：立刻让该网站所属服务器的 Agent 执行 rsync --link-dest 硬链快照 +
+     * 数据库全量导出并推送到 incremental_storage_id 指定的 SFTP 存储（P5）。
+     * 走 agent_commands 通道（type=incremental_backup），下一个心跳（≤60s）Agent 会收到。
+     */
+    public function incrementalBackupNow(Website $website): JsonResponse
+    {
+        $server = $website->server;
+        if (! $server || $server->connect_type !== \App\Models\Server::CONNECT_AGENT) {
+            return response()->json(['message' => '该网站所属服务器不是 Agent 模式，无法增量备份'], 422);
+        }
+        if ($website->backup_source !== Website::BACKUP_SOURCE_SELF) {
+            return response()->json(['message' => '该网站未启用自主压缩备份（backup_source=self）'], 422);
+        }
+        if (($website->backup_mode ?? 'full') !== Website::BACKUP_MODE_INCREMENTAL) {
+            return response()->json(['message' => '该网站未启用增量备份（backup_mode=incremental）'], 422);
+        }
+        if (! $website->incremental_storage_id) {
+            return response()->json(['message' => '未配置增量备份目标存储，请在编辑网站时选择'], 422);
+        }
+        // 防重：同网站已有 pending/dispatched 的 incremental_backup 则复用
+        $existing = \App\Models\AgentCommand::where('server_id', $server->id)
+            ->where('type', \App\Models\AgentCommand::TYPE_INCREMENTAL_BACKUP)
+            ->whereIn('status', [\App\Models\AgentCommand::STATUS_PENDING, \App\Models\AgentCommand::STATUS_DISPATCHED])
+            ->whereJsonContains('params', ['website_id' => $website->id])
+            ->latest('id')
+            ->first();
+        if ($existing) {
+            return response()->json(['message' => '已有增量备份任务在队列中，最长 60 秒内 Agent 会执行', 'command_id' => $existing->id]);
+        }
+        $cmd = \App\Models\AgentCommand::create([
+            'server_id'   => $server->id,
+            'type'        => \App\Models\AgentCommand::TYPE_INCREMENTAL_BACKUP,
+            'params'      => ['website_id' => $website->id, 'website_name' => $website->name],
+            'status'      => \App\Models\AgentCommand::STATUS_PENDING,
+        ]);
+        return response()->json([
+            'message'    => '已下发增量备份指令，最长 60 秒后 Agent 会执行（rsync 快照 + 数据库导出并上传）',
+            'command_id' => $cmd->id,
+        ]);
+    }
+
+    /**
      * 根目录绑定：下发 bind_root 指令，让 Agent 校验/搜索密钥文件(.bc-bind-<token>)并回传网站根目录。
      * 支持两种方式：direct_path（用户直接填根目录，Agent 校验密钥文件在不在）或 search_bases（Agent 有界搜索）。
      */
@@ -228,6 +277,39 @@ class WebsiteController extends Controller
         ]);
     }
 
+    /**
+     * 增量配置交叉校验（store/update 共用；调用方传入「生效值」——update 时是
+     * 库中现值与本次提交的合并，兼容局部更新）。
+     * 校验失败统一 abort(422, ...)，由框架转成 JSON 错误响应。
+     */
+    private function validateIncrementalConfig(array $effective): void
+    {
+        if (($effective['backup_mode'] ?? 'full') !== Website::BACKUP_MODE_INCREMENTAL) {
+            return; // full 不校验（incremental_storage_id 允许滞留，切回 full 即失效）
+        }
+        if (($effective['backup_source'] ?? 'external') !== Website::BACKUP_SOURCE_SELF) {
+            abort(422, '增量备份需要先启用自主压缩备份（backup_source=self）');
+        }
+        $storageId = $effective['incremental_storage_id'] ?? null;
+        if (! $storageId) {
+            abort(422, '请选择增量备份目标存储');
+        }
+        $storage = Storage::find($storageId);
+        if (! $storage) {
+            abort(422, '增量备份目标存储不存在');
+        }
+        if ($storage->type !== Storage::TYPE_SFTP) {
+            abort(422, '增量备份目标必须是 SFTP 类型存储（rsync 经 SSH 推送到 VPS）');
+        }
+        $config = $storage->config ?? [];
+        if (empty($config['private_key'])) {
+            abort(422, '增量备份目标存储必须配置 SSH 私钥（rsync 不支持交互式密码输入）');
+        }
+        if (! empty($config['encryption']['enabled'])) {
+            abort(422, '增量备份目标存储不能开启加密（rsync 明文写入，与加密层不兼容）');
+        }
+    }
+
     private function validated(Request $request): array
     {
         return $request->validate([
@@ -244,6 +326,9 @@ class WebsiteController extends Controller
             'sync_mode' => ['nullable', 'string', Rule::in(['auto', 'scheduled'])],
             // 备份来源 / 恢复模式（P1 仅存值，self/advanced 的执行能力在 P3/P4 落地）
             'backup_source' => ['nullable', 'string', Rule::in([Website::BACKUP_SOURCE_EXTERNAL, Website::BACKUP_SOURCE_SELF])],
+            // 备份方式：full=全量；incremental=rsync 硬链快照（仅 backup_source=self 可选）
+            'backup_mode' => ['nullable', 'string', Rule::in([Website::BACKUP_MODE_FULL, Website::BACKUP_MODE_INCREMENTAL])],
+            'incremental_storage_id' => ['nullable', 'integer', Rule::exists('storages', 'id')],
             'restore_mode' => ['nullable', 'string', Rule::in([Website::RESTORE_MODE_LITE, Website::RESTORE_MODE_ADVANCED])],
             'web_root' => ['nullable', 'string', 'max:255'],
             'db_type'  => ['nullable', 'string', Rule::in([Website::DB_TYPE_MYSQL, Website::DB_TYPE_POSTGRESQL])],

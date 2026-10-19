@@ -20,6 +20,10 @@ class Website extends Model
     public const BACKUP_SOURCE_EXTERNAL = 'external';
     public const BACKUP_SOURCE_SELF     = 'self';
 
+    // 备份方式：full=全量（现行为）；incremental=rsync 硬链快照（仅 backup_source=self 可选）
+    public const BACKUP_MODE_FULL         = 'full';
+    public const BACKUP_MODE_INCREMENTAL  = 'incremental';
+
     // 恢复模式：lite=轻便（拉回备份目录手动恢复）；advanced=高级自动恢复（P4）
     public const RESTORE_MODE_LITE      = 'lite';
     public const RESTORE_MODE_ADVANCED  = 'advanced';
@@ -37,6 +41,8 @@ class Website extends Model
         'schedule',
         'sync_mode',
         'backup_source',
+        'backup_mode',
+        'incremental_storage_id',
         'restore_mode',
         'bind_token',
         'web_root',
@@ -167,7 +173,8 @@ class Website extends Model
     }
 
     /**
-     * 自主压缩站点（backup_source=self）的最近一次产物：网站目录(-web-.tar.gz) 与 数据库(-db-.sql.gz) 各取最新一条。
+     * 自主压缩站点（backup_source=self）的最近一次产物：网站目录(-web-.tar.gz)、数据库(-db-.sql.gz)
+     * 与增量快照(-snap-<stamp>) 各取最新一条。
      * 前端网站列表「最近备份」列在 self 模式下回落到这里展示。
      */
     public function recentSelfBackups(): array
@@ -180,12 +187,20 @@ class Website extends Model
             ->where('filename', 'like', '%-db-%.sql.gz')
             ->orderByDesc('backup_at')->orderByDesc('id')
             ->with(['uploads.storage:id,name,type'])->first();
+        $snapLog = $this->backupLogs()
+            ->where('filename', 'like', '%-snap-%')
+            ->orderByDesc('backup_at')->orderByDesc('id')
+            ->with(['uploads.storage:id,name,type'])->first();
         $out = [];
         if ($webLog) {
             $out[] = ['label' => '网站目录', 'path' => $this->web_root ?: '', 'log' => $this->buildLogSummary($webLog)];
         }
         if ($dbLog) {
             $out[] = ['label' => '数据库', 'path' => '（数据库）', 'log' => $this->buildLogSummary($dbLog)];
+        }
+        if ($snapLog) {
+            // 增量快照：full_path 是远端快照目录（Agent 上报约定），直接展示
+            $out[] = ['label' => '增量快照', 'path' => $snapLog->full_path, 'log' => $this->buildLogSummary($snapLog)];
         }
         return $out;
     }

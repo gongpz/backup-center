@@ -68,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/websites/{website}/sync-now', [WebsiteController::class, 'syncNow']);
     Route::post('/websites/{website}/bind-root', [WebsiteController::class, 'bindRoot']);
     Route::post('/websites/{website}/self-backup', [WebsiteController::class, 'selfBackupNow']);
+    Route::post('/websites/{website}/incremental-backup', [WebsiteController::class, 'incrementalBackupNow']);
 
     // 指令状态查询（绑定/同步/自主备份等下发后前端轮询执行结果）
     Route::get('/agent-commands/{command}', [AgentCommandController::class, 'show']);

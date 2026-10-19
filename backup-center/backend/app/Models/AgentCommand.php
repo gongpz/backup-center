@@ -17,9 +17,12 @@ class AgentCommand extends Model
     public const TYPE_RESTORE  = 'restore';
     public const TYPE_BIND_ROOT = 'bind_root';
     public const TYPE_SELF_BACKUP = 'self_backup';
+    // 增量备份（P5）：rsync --link-dest 硬链快照 + 数据库全量导出，推送至 SFTP 存储。
+    // params: {website_id, website_name} —— 与 self_backup 一致，绝不携带任何凭据。
+    public const TYPE_INCREMENTAL_BACKUP = 'incremental_backup';
     // 保留期清理（C4/T2）：Center 按 retention_days 算出超期文件清单，Agent 用本地
     // rclone.conf 删云端（encryption+agent_local 时中心无密码，只能由 Agent 执行）。
-    // params: {files: [{log_id, remote_path}, ...]} —— 绝不携带任何凭据。
+    // params: {files: [{log_id, remote_path, is_dir}, ...]} —— 绝不携带任何凭据。
     public const TYPE_CLEANUP_RETENTION = 'cleanup_retention';
 
     protected $fillable = [

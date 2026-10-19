@@ -256,6 +256,9 @@ class CleanupExpiredBackups extends Command
                         $site['agentFiles'][$server->id][] = [
                             'log_id'      => $logId,
                             'remote_path' => (string) $upload->remote_path,
+                            // 契约：快照日志（filename 命中 -snap-\d{8}-\d{6}$）的 remote_path 恒为快照目录，
+                            // Agent 侧按 is_dir 走 rclone purge（与 RestoreController::fileType 同一判定）
+                            'is_dir'      => (bool) preg_match('/-snap-\d{8}-\d{6}$/', (string) $log->filename),
                         ];
                     }
                     continue;
@@ -285,7 +288,12 @@ class CleanupExpiredBackups extends Command
                         $rowBlocked = true;
                         continue;
                     }
-                    $site['centerFiles'][] = $upload;
+                    $site['centerFiles'][] = [
+                        'upload'  => $upload,
+                        // 契约：快照日志（filename 命中 -snap-\d{8}-\d{6}$）的 remote_path 恒为快照目录，
+                        // Center 兜底按 is_dir 走 rclone purge（与 agentFiles 同判定）
+                        'is_dir'  => (bool) preg_match('/-snap-\d{8}-\d{6}$/', (string) $log->filename),
+                    ];
                 }
 
                 if (! $rowBlocked) {
@@ -368,7 +376,7 @@ class CleanupExpiredBackups extends Command
      * 同一 server DISPATCH_DEDUPE_HOURS 小时内已有 pending/dispatched 的同类型指令则整站跳过，
      * 防止 Agent 掉线期间每天堆积重复指令。
      *
-     * @param  list<array{log_id:int, remote_path:string}> $files
+     * @param  list<array{log_id:int, remote_path:string, is_dir:bool}> $files
      * @return int 创建的指令数
      */
     private function dispatchAgentCleanup(Website $website, int $serverId, array $files): int
@@ -516,17 +524,20 @@ class CleanupExpiredBackups extends Command
 
     /**
      * 批量删云端文件。单个失败只记 warning 并计数，不中断整批，也不阻断数据库删除。
+     * $uploads 每项为 ['upload' => BackupUpload, 'is_dir' => bool]（is_dir 走 rclone purge）。
      *
      * @return int 成功删除的个数
      */
-    private function deleteRemoteFiles(Website $website, $uploads): int
+    private function deleteRemoteFiles(Website $website, array $uploads): int
     {
         $ok = 0;
         $confCache = [];   // storage_id => rclone.conf 路径（同 storage 复用一份）
         $tempFiles = [];   // 用完统一清理（含 SSH 私钥临时文件）
 
         try {
-            foreach ($uploads as $upload) {
+            foreach ($uploads as $entry) {
+                $upload = $entry['upload'];
+                $isDir = (bool) ($entry['is_dir'] ?? false);
                 $storage = Storage::find($upload->storage_id);
                 if (! $storage) {
                     $this->warnCloud($website, $upload, '对应的 Storage 记录已不存在');
@@ -562,7 +573,7 @@ class CleanupExpiredBackups extends Command
                     continue;
                 }
 
-                [$done, $message] = $this->rcloneDeleteFile($confCache[$storage->id], $remotePath);
+                [$done, $message] = $this->rcloneDeleteFile($confCache[$storage->id], $remotePath, $isDir);
                 if ($done) {
                     $ok++;
                 } else {
@@ -588,14 +599,17 @@ class CleanupExpiredBackups extends Command
     }
 
     /**
-     * rclone deletefile 删除单个远端文件。
+     * rclone 删除单个远端目标：文件走 deletefile，目录（is_dir，增量快照）走 purge，其余旗标一致。
      * remote_path 原样传入（已含 bc_<id>: 或 bc_<id>_c: 前缀），不做任何路径再拼接。
+     * purge 不存在的目录时 stderr 含 "directory not found" —— 目标已不存在，按删除成功处理
+     * （与 Agent 侧 performRetentionCleanup 的 not-found 幂等语义一致）。
      *
      * @return array{0: bool, 1: string}
      */
-    private function rcloneDeleteFile(string $confPath, string $remotePath): array
+    private function rcloneDeleteFile(string $confPath, string $remotePath, bool $isDir = false): array
     {
-        $cmd = 'rclone deletefile --config ' . escapeshellarg($confPath)
+        $verb = $isDir ? 'purge' : 'deletefile';
+        $cmd = 'rclone ' . $verb . ' --config ' . escapeshellarg($confPath)
             . ' --contimeout 10s --timeout 60s --retries 1 --low-level-retries 1'
             . ' ' . escapeshellarg($remotePath)
             . ' 2>&1';
@@ -609,8 +623,14 @@ class CleanupExpiredBackups extends Command
         }
 
         $joined = trim(implode("\n", $output));
+
+        // purge 目标不存在（含执行顺序竞争中先被删掉的情况）→ 视为成功
+        if ($isDir && stripos($joined, 'not found') !== false) {
+            return [true, ''];
+        }
+
         $joined = preg_replace('/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+/m', '', $joined) ?? $joined;
-        $joined = preg_replace('/^.*Failed to (deletefile|delete)[\w ]*:\s*/i', '', $joined) ?? $joined;
+        $joined = preg_replace('/^.*Failed to (deletefile|delete|purge)[\w ]*:\s*/i', '', $joined) ?? $joined;
 
         return [false, mb_substr($joined !== '' ? $joined : "exit={$exitCode}", 0, 480)];
     }

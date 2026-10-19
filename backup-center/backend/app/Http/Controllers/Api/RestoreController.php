@@ -350,7 +350,12 @@ class RestoreController extends Controller
             $website = $log->website;
             $mode = $website ? ($website->restore_mode ?? 'lite') : 'lite';
 
-            if ($mode === 'advanced') {
+            // is_dir 契约：快照日志（filename 命中 -snap-\d{8}-\d{6}$）的 remote_path 是目录，
+            // full_path 也是远端路径，不能走 dirname(full_path) —— 快照一律进中转目录按目录下载
+            $isSnapshot = $this->fileType((string) $log->filename) === 'snapshot';
+            if ($isSnapshot) {
+                $localDir = sys_get_temp_dir() . '/bc-restore-inc-' . $log->id . '-' . time();
+            } elseif ($mode === 'advanced') {
                 // 不直接覆盖线上 web_root；Agent 把归档 rclone 到此中转目录，再解压到 web_root 的父级
                 $localDir = sys_get_temp_dir() . '/bc-restore-' . ($website->id ?? $log->id) . '-' . time();
             } else {
@@ -387,6 +392,10 @@ class RestoreController extends Controller
             if ($mode === 'advanced' && $website) {
                 $params['restore_mode'] = 'advanced';
                 $params['website_id'] = $website->id;
+            }
+            // 快照：告知 Agent 按目录下载（rclone copy 整个快照目录到 local_dir）
+            if ($isSnapshot) {
+                $params['path_type'] = 'dir';
             }
 
             $cmd = AgentCommand::create([
@@ -519,10 +528,15 @@ class RestoreController extends Controller
     }
 
     /**
-     * 文件类型：数据库转储按 database，其余（网站目录归档）按 website。
+     * 文件类型：database=数据库转储；snapshot=增量快照目录；website=网站目录归档。
+     * is_dir 契约（Center 与 Agent 双方共守）：快照日志（filename 命中 -snap-\d{8}-\d{6}$）
+     * 的 remote_path 恒为快照目录，恢复时按目录下载（path_type=dir），不能按文件处理。
      */
     private function fileType(string $filename): string
     {
+        if (preg_match('/-snap-\d{8}-\d{6}$/i', $filename)) {
+            return 'snapshot';
+        }
         return preg_match('/\.sql(\.|$)/i', $filename) ? 'database' : 'website';
     }
 
@@ -532,6 +546,12 @@ class RestoreController extends Controller
     private function fileLabel(BackupLog $log, Website $website): string
     {
         $type = $this->fileType((string) $log->filename);
+
+        // 快照日志的 full_path 是远端快照目录，对 backup_paths 前缀匹配无意义，直接兜底标签
+        if ($type === 'snapshot') {
+            return '增量快照';
+        }
+
         $fullPath = (string) ($log->full_path ?? '');
 
         foreach ($website->backup_paths ?? [] as $bp) {

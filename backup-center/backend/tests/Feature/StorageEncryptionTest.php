@@ -419,9 +419,11 @@ class StorageEncryptionTest extends TestCase
         $this->assertSame([[
             'log_id'      => $older->id,
             'remote_path' => 'bc_' . $storage->id . ':demo/a.tar.gz',
+            // P5 契约：is_dir 标记（快照目录日志恒 true，普通文件 false），Agent 按此走 purge/deletefile
+            'is_dir'      => false,
         ]], $cmd->params['files']);
 
-        // 红线：params 里只有 files[{log_id, remote_path}]，没有任何凭据
+        // 红线：params 里只有 files[{log_id, remote_path, is_dir}]，没有任何凭据
         $this->assertSame(['files'], array_keys($cmd->params));
         foreach (self::CREDENTIAL_KEYS as $key) {
             $this->assertArrayNotHasKey($key, $cmd->params);

@@ -287,6 +287,13 @@ class AgentController extends Controller
         }
         foreach ($mandatory as $s) $allStorages->put($s->id, $s);
 
+        // 增量备份目标存储（P5）：可能不在 website_storages pivot 里，但 Agent 需要它的
+        // rclone.conf section 与 SSH 私钥落地，才能 rsync 快照到 VPS —— 必须进顶层 storages
+        $incIds = $sites->pluck('incremental_storage_id')->filter()->unique()->values()->all();
+        if ($incIds !== []) {
+            Storage::whereIn('id', $incIds)->get()->each(fn ($s) => $allStorages->put($s->id, $s));
+        }
+
         // 拉平返回 - 顶层给一份完整 storages 清单（含解密 config），网站里只放 ID 列表
         $storagesOut = $allStorages->values()->map(function ($s) {
             $config = $s->config; // Attribute cast 自动解密
@@ -343,6 +350,10 @@ class AgentController extends Controller
                     // db_password 经 Website::dbPassword Attribute 解密后以明文下发（同 Storage.config 通道，
                     // 仅驻留 Agent 内存，绝不通过 AgentCommand.params 持久化）。
                     'backup_source' => $w->backup_source,
+                    // 备份方式（P5）：full=全量；incremental=rsync 硬链快照（仅 backup_source=self 可选）
+                    'backup_mode' => $w->backup_mode ?: 'full',
+                    // 增量备份目标存储 ID（SFTP + SSH 私钥 + 未加密；顶层 storages 必含）
+                    'incremental_storage_id' => $w->incremental_storage_id,
                     'web_root' => $w->web_root,
                     'db_type' => $w->db_type,
                     'db_host' => $w->db_host,

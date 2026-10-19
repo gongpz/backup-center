@@ -20,6 +20,9 @@ class BackupSource
     /** self 数据库 dump：xxx-db-<ts>.sql.gz（兼容未压缩的 .sql） */
     public const SELF_DB = 'self:db';
 
+    /** self 增量快照目录日志：xxx-snap-<ts>（无扩展名；full_path 是远端快照目录） */
+    public const SELF_SNAPSHOT = 'self:snapshot';
+
     /** external：full_path 前缀命中 websites.backup_paths[i].path 时的前缀 */
     public const EXT_PREFIX = 'ext:';
 
@@ -39,6 +42,9 @@ class BackupSource
         }
         if (preg_match('/-db-.*\.sql(\.gz)?$/i', $filename)) {
             return self::SELF_DB;
+        }
+        if (preg_match('/-snap-\d{8}-\d{6}$/i', $filename)) {
+            return self::SELF_SNAPSHOT;
         }
 
         // ② external：full_path 前缀匹配配置的备份目录

@@ -30,6 +30,10 @@ class StorageResource extends JsonResource
             'remark' => $this->remark,
             'access_url' => $this->access_url,
             'config' => $this->when($includeConfig, fn () => $this->safeConfig()),
+            // 增量备份筛选用布尔脱敏字段（P5）：只告知"配没配"，不泄露任何密钥内容。
+            // 前端增量目标下拉：type=sftp && private_key_set && !encryption_enabled
+            'private_key_set' => ! empty(($this->config ?? [])['private_key']),
+            'encryption_enabled' => ! empty(($this->config ?? [])['encryption']['enabled']),
             'last_test_status' => $this->last_test_status,
             'last_test_message' => $this->last_test_message,
             'last_tested_at' => $this->last_tested_at?->toIso8601String(),

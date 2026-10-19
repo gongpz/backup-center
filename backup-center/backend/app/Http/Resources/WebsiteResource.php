@@ -38,6 +38,9 @@ class WebsiteResource extends JsonResource
             'schedule' => $this->schedule,
             'sync_mode' => $this->sync_mode ?: 'auto',
             'backup_source' => $this->backup_source ?: 'external',
+            // 备份方式（P5）：full=全量；incremental=rsync 硬链快照（仅 backup_source=self 可选）
+            'backup_mode' => $this->backup_mode ?: 'full',
+            'incremental_storage_id' => $this->incremental_storage_id,
             'restore_mode' => $this->restore_mode ?: 'lite',
 
             // 根目录绑定
