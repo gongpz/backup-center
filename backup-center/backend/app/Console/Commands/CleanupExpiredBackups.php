@@ -8,6 +8,7 @@ use App\Models\BackupUpload;
 use App\Models\Server;
 use App\Models\Storage;
 use App\Models\Website;
+use App\Services\RcloneConfBuilder;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -50,7 +51,7 @@ class CleanupExpiredBackups extends Command
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
-        $rcloneReady = $this->rcloneAvailable();
+        $rcloneReady = RcloneConfBuilder::available();
 
         $this->info($dryRun
             ? '[dry-run] 备份保留期清理：只统计，不删除任何数据'
@@ -555,14 +556,15 @@ class CleanupExpiredBackups extends Command
                 }
 
                 if (! isset($confCache[$storage->id])) {
-                    $warnings = [];
                     $confPath = tempnam(sys_get_temp_dir(), 'cleanup_rcloneconf_');
                     $tempFiles[] = $confPath;
-                    file_put_contents($confPath, $this->buildRcloneConf($storage, $tempFiles, $warnings));
+                    $r = RcloneConfBuilder::build($storage);
+                    $tempFiles = array_merge($tempFiles, $r['tempFiles']);
+                    file_put_contents($confPath, $r['conf']);
                     chmod($confPath, 0600);
-                    if ($warnings !== []) {
+                    if ($r['warnings'] !== []) {
                         // obscure 失败：conf 里缺凭证，继续删会失败或误删 —— 跳过该存储全部文件
-                        $this->warnCloud($website, $upload, implode('；', $warnings));
+                        $this->warnCloud($website, $upload, implode('；', $r['warnings']));
                         $confCache[$storage->id] = null;
                         continue;
                     }
@@ -633,119 +635,6 @@ class CleanupExpiredBackups extends Command
         $joined = preg_replace('/^.*Failed to (deletefile|delete|purge)[\w ]*:\s*/i', '', $joined) ?? $joined;
 
         return [false, mb_substr($joined !== '' ? $joined : "exit={$exitCode}", 0, 480)];
-    }
-
-    /**
-     * 按 Storage 类型生成 rclone.conf 内容。
-     * section 名固定为 bc_<id>，与 agent/internal/uploader/rcloneconf.go 的 remoteName() 一致，
-     * 这样存下来的 remote_path（bc_<id>:...）才能被原样解析。
-     * 开启加密且中心持密码时额外渲染 bc_<id>_c（crypt 包裹层），remote_path 带 _c 前缀时自动走它。
-     * &$tempFiles 收集 SSH 私钥临时文件，由 caller 统一清理；
-     * &$warnings 收集"无法安全生成配置"的原因（obscure 失败）——有 warning 时 caller 必须跳过该存储。
-     */
-    private function buildRcloneConf(Storage $storage, array &$tempFiles, array &$warnings = []): string
-    {
-        $c = $storage->config ?: [];
-        $remote = 'bc_' . $storage->id;
-        $lines = ['[' . $remote . ']'];
-
-        switch ($storage->type) {
-            case Storage::TYPE_SFTP:
-                $lines[] = 'type = sftp';
-                $lines[] = 'host = ' . ($c['host'] ?? '');
-                if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', $c['password'], '存储密码', $warnings);
-                if (! empty($c['private_key'])) {
-                    $keyPath = tempnam(sys_get_temp_dir(), 'cleanup_sshkey_');
-                    $tempFiles[] = $keyPath;
-                    file_put_contents($keyPath, $c['private_key']);
-                    chmod($keyPath, 0600);
-                    $lines[] = 'key_file = ' . $keyPath;
-                }
-                break;
-            case Storage::TYPE_FTP:
-                $lines[] = 'type = ftp';
-                $lines[] = 'host = ' . ($c['host'] ?? '');
-                if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', $c['password'], '存储密码', $warnings);
-                if (! empty($c['tls'])) $lines[] = 'tls = true';
-                if (! empty($c['explicit_tls'])) $lines[] = 'explicit_tls = true';
-                if (! empty($c['no_check_certificate'])) $lines[] = 'no_check_certificate = true';
-                break;
-            case Storage::TYPE_WEBDAV:
-                $lines[] = 'type = webdav';
-                $lines[] = 'url = ' . ($c['url'] ?? '');
-                if (! empty($c['vendor'])) $lines[] = 'vendor = ' . $c['vendor'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) $this->appendObscured($lines, 'pass', $c['password'], '存储密码', $warnings);
-                break;
-            case Storage::TYPE_S3:
-                $lines[] = 'type = s3';
-                $lines[] = 'provider = Other';
-                $lines[] = 'endpoint = ' . ($c['endpoint'] ?? '');
-                if (! empty($c['region'])) $lines[] = 'region = ' . $c['region'];
-                $lines[] = 'access_key_id = ' . ($c['access_key_id'] ?? '');
-                $lines[] = 'secret_access_key = ' . ($c['secret_access_key'] ?? '');
-                if (! empty($c['path_style'])) $lines[] = 'force_path_style = true';
-                // 与 Agent 端一致：绕过 CreateBucket 权限探测（R2/COS/OSS 的 IAM 一般不给）
-                $lines[] = 'no_check_bucket = true';
-                break;
-            default:
-                // 不支持的类型也要生成一个可解析的 section，否则 rclone 找不到 remote
-                $lines[] = 'type = ' . $storage->type;
-                break;
-        }
-
-        // 加密包裹层（crypt）：仅在中心持密码（key_mode=center）时渲染，
-        // key_mode=agent_local 时中心无密钥，走不到这里（调用方已把这些存储挡在人工清单）。
-        $enc = $c['encryption'] ?? [];
-        if (! empty($enc['enabled']) && ($enc['key_mode'] ?? 'center') === 'center') {
-            $lines[] = '';
-            $lines[] = '[' . $remote . '_c]';
-            $lines[] = 'type = crypt';
-            $lines[] = 'remote = ' . $remote;
-            $this->appendObscured($lines, 'password', (string) ($enc['password'] ?? ''), '加密密码', $warnings);
-            $lines[] = 'filename_encryption = ' . (($enc['filename_encryption'] ?? 'standard') === 'off' ? 'off' : 'standard');
-            $lines[] = 'directory_name_encryption = ' . (! empty($enc['directory_name_encryption']) ? 'true' : 'false');
-        }
-
-        return implode("\n", $lines) . "\n";
-    }
-
-    /**
-     * 写一行需要 obscure 的凭证。obscure 失败时不写这一行（绝不退回明文），
-     * 而是记 warning 让调用方跳过该存储。
-     */
-    private function appendObscured(array &$lines, string $key, string $plain, string $label, array &$warnings): void
-    {
-        $obscured = $this->rcloneObscure($plain);
-        if ($obscured === null) {
-            $warnings[] = "{$label} obscure 失败，已跳过该存储（禁止明文降级）";
-            return;
-        }
-        $lines[] = $key . ' = ' . $obscured;
-    }
-
-    /**
-     * rclone 密码需要 obscure。返回 null 表示 obscure 失败 —— 调用方必须跳过并告警，
-     * 禁止退回明文写 conf（与 Go Agent 端行为对齐）。
-     */
-    private function rcloneObscure(?string $plain): ?string
-    {
-        if ($plain === null || $plain === '') {
-            return null;
-        }
-        $cmd = 'rclone obscure ' . escapeshellarg($plain) . ' 2>/dev/null';
-        $out = trim((string) shell_exec($cmd));
-        return $out !== '' ? $out : null;
-    }
-
-    private function rcloneAvailable(): bool
-    {
-        return is_executable('/usr/bin/rclone')
-            || trim((string) shell_exec('command -v rclone 2>/dev/null')) !== '';
     }
 
     /** 云端删除失败：记 warning 日志 + 控制台提示，但不中断整批 */

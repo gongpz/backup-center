@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ResourcePoolController;
 use App\Http\Controllers\Api\RestoreController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\StorageController;
+use App\Http\Controllers\Api\StorageFileController;
 use App\Http\Controllers\Api\SystemSettingController;
 use App\Http\Controllers\Api\WebsiteController;
 use Illuminate\Support\Facades\Route;
@@ -92,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // 存储（Rclone 配置）
     Route::apiResource('storages', StorageController::class);
     Route::post('/storages/{storage}/test', [StorageController::class, 'test']);
+    Route::get('/storages/{storage}/files', [StorageFileController::class, 'index']);
     Route::get('/storages-mandatory', [StorageController::class, 'mandatory']);
 
     // 资源池（COS/OSS 对象存储，用于 Agent 二进制分发 + 用户上传的静态资源）

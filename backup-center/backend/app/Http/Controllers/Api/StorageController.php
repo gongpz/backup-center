@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StorageResource;
 use App\Models\Storage;
+use App\Services\RcloneConfBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -138,7 +139,7 @@ class StorageController extends Controller
      */
     private function rcloneProbe(Storage $storage): array
     {
-        if (! is_executable('/usr/bin/rclone') && trim((string) shell_exec('command -v rclone 2>/dev/null')) === '') {
+        if (! RcloneConfBuilder::available()) {
             return [false, 'rclone 未安装在 Center 后端容器（请重建 bc-app 镜像）'];
         }
 
@@ -300,122 +301,16 @@ class StorageController extends Controller
      * 按 Storage 类型生成一段 rclone.conf 内容。&$tempFiles 收集临时私钥文件，caller 负责清理。
      * &$warnings 收集"无法安全生成配置"的原因（如 obscure 失败）——出现 warning 时调用方
      * 必须跳过该存储，绝不降级明文。
+     *
+     * 实际构建逻辑收敛在 RcloneConfBuilder（与保留期清理兜底共用一份），这里只做
+     * 返回结构到引用参数的适配，保持既有调用方无感。
      */
     private function buildRcloneConf(string $remote, Storage $storage, array &$tempFiles, array &$warnings = []): string
     {
-        $c = $storage->config;
-        $lines = ["[{$remote}]"];
-        switch ($storage->type) {
-            case Storage::TYPE_SFTP:
-                $lines[] = 'type = sftp';
-                $lines[] = 'host = ' . ($c['host'] ?? '');
-                if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) {
-                    $obscured = $this->rcloneObscure($c['password']);
-                    if ($obscured === null) {
-                        $warnings[] = '存储密码 obscure 失败，已跳过该存储探测（禁止明文降级）';
-                    } else {
-                        $lines[] = 'pass = ' . $obscured;
-                    }
-                }
-                if (! empty($c['private_key'])) {
-                    $keyPath = tempnam(sys_get_temp_dir(), 'sshkey_');
-                    $tempFiles[] = $keyPath;
-                    file_put_contents($keyPath, $c['private_key']);
-                    chmod($keyPath, 0600);
-                    $lines[] = 'key_file = ' . $keyPath;
-                }
-                break;
-            case Storage::TYPE_FTP:
-                $lines[] = 'type = ftp';
-                $lines[] = 'host = ' . ($c['host'] ?? '');
-                if (! empty($c['port'])) $lines[] = 'port = ' . $c['port'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) {
-                    $obscured = $this->rcloneObscure($c['password']);
-                    if ($obscured === null) {
-                        $warnings[] = '存储密码 obscure 失败，已跳过该存储探测（禁止明文降级）';
-                    } else {
-                        $lines[] = 'pass = ' . $obscured;
-                    }
-                }
-                if (! empty($c['tls'])) $lines[] = 'tls = true';
-                if (! empty($c['explicit_tls'])) $lines[] = 'explicit_tls = true';
-                if (! empty($c['no_check_certificate'])) $lines[] = 'no_check_certificate = true';
-                break;
-            case Storage::TYPE_WEBDAV:
-                $lines[] = 'type = webdav';
-                $lines[] = 'url = ' . ($c['url'] ?? '');
-                if (! empty($c['vendor'])) $lines[] = 'vendor = ' . $c['vendor'];
-                $lines[] = 'user = ' . ($c['user'] ?? '');
-                if (! empty($c['password'])) {
-                    $obscured = $this->rcloneObscure($c['password']);
-                    if ($obscured === null) {
-                        $warnings[] = '存储密码 obscure 失败，已跳过该存储探测（禁止明文降级）';
-                    } else {
-                        $lines[] = 'pass = ' . $obscured;
-                    }
-                }
-                break;
-            case Storage::TYPE_S3:
-                $lines[] = 'type = s3';
-                $lines[] = 'provider = Other';
-                $lines[] = 'endpoint = ' . ($c['endpoint'] ?? '');
-                $lines[] = 'region = ' . ($c['region'] ?? 'us-east-1');
-                $lines[] = 'access_key_id = ' . ($c['access_key_id'] ?? '');
-                $lines[] = 'secret_access_key = ' . ($c['secret_access_key'] ?? '');
-                if (! empty($c['path_style'])) $lines[] = 'force_path_style = true';
-                // 关键：绕过 CreateBucket 权限探测（R2/COS/OSS 的 IAM 一般不给）
-                $lines[] = 'no_check_bucket = true';
-                break;
-        }
-
-        // 加密包裹层（rclone crypt）：encryption.enabled && key_mode=center 时中心持密码，
-        // 增渲染 [probe_<id>_c]（type=crypt, remote=probe_<id>:, password=obscure(加密密码)）。
-        // agent_local 模式中心无密码，不渲染（探测只覆盖底层 remote）。
-        $enc = $c['encryption'] ?? [];
-        if (! empty($enc['enabled']) && ($enc['key_mode'] ?? self::ENC_KEY_MODE_CENTER) === self::ENC_KEY_MODE_CENTER) {
-            $lines[] = '';
-            $lines[] = "[{$remote}_c]";
-            $lines[] = 'type = crypt';
-            // remote 指向底层 remote 名，必须带冒号。S3 还要把 bucket 拼进来（remote = probe_<id>:bucket）：
-            // crypt 只能加密 bucket 之后的路径，bucket 名本身不能被加密，否则底层 S3 remote 会把加密后的
-            // 字符串当成 bucket 名去访问 → object not found。非 S3 无 bucket 概念，保持 probe_<id>:。
-            $cryptRemote = $remote . ':';
-            if ($storage->type === Storage::TYPE_S3) {
-                $bucket = trim((string) ($c['bucket'] ?? ''), '/');
-                if ($bucket !== '') {
-                    $cryptRemote = $remote . ':' . $bucket;
-                }
-            }
-            $lines[] = 'remote = ' . $cryptRemote;
-            $obscured = $this->rcloneObscure((string) ($enc['password'] ?? ''));
-            if ($obscured === null) {
-                // 拿不到 obscure 值时绝不写明文：省略 password 行并告警，调用方跳过该存储
-                $warnings[] = '加密密码 obscure 失败，已跳过该存储探测（禁止明文降级）';
-            } else {
-                $lines[] = 'password = ' . $obscured;
-            }
-            $lines[] = 'filename_encryption = ' . (($enc['filename_encryption'] ?? 'standard') === 'off' ? 'off' : 'standard');
-            $lines[] = 'directory_name_encryption = ' . (! empty($enc['directory_name_encryption']) ? 'true' : 'false');
-        }
-
-        return implode("\n", $lines) . "\n";
-    }
-
-    /**
-     * rclone 密码需要 obscure。返回 null 表示 obscure 失败 —— 调用方必须跳过并告警，
-     * 禁止退回明文写 conf（与 Go Agent 端行为对齐）。
-     */
-    private function rcloneObscure(?string $plain): ?string
-    {
-        if ($plain === null || $plain === '') {
-            return null;
-        }
-        $cmd = 'rclone obscure ' . escapeshellarg($plain) . ' 2>/dev/null';
-        $out = trim((string) shell_exec($cmd));
-        return $out !== '' ? $out : null;
+        $r = RcloneConfBuilder::build($storage, $remote);
+        $tempFiles = array_merge($tempFiles, $r['tempFiles']);
+        $warnings = array_merge($warnings, $r['warnings']);
+        return $r['conf'];
     }
 
     /* -------------------------------------------------------- */
