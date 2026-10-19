@@ -39,9 +39,9 @@ type BackupPath struct {
 }
 
 type Website struct {
-	ID            int64        `json:"id"`
-	Name          string       `json:"name"`
-	BackupPaths   []BackupPath `json:"backup_paths"`
+	ID          int64        `json:"id"`
+	Name        string       `json:"name"`
+	BackupPaths []BackupPath `json:"backup_paths"`
 	// 保留字段（v0.3 协议兼容）：新代码不用，仅在 backup_paths 为空且服务端只下发老字段时作为 fallback
 	BackupPath    string  `json:"backup_path"`
 	FilePattern   string  `json:"file_pattern"`
@@ -58,6 +58,10 @@ type Website struct {
 	DBPassword   string `json:"db_password"`
 	// 同步方式：auto=Agent 每 2 分钟自动扫描（默认）；scheduled=Agent 不主动扫，等 Center 派 sync_now
 	SyncMode string `json:"sync_mode"`
+	// 备份方式（v0.15）：full=全量；incremental=rsync 硬链快照（仅 backup_source=self 可選）
+	BackupMode string `json:"backup_mode"`
+	// 增量备份目标存储 ID（必须是 SFTP + SSH 私钥 + 未加密存储）
+	IncrementalStorageID int64 `json:"incremental_storage_id"`
 }
 
 // EffectivePaths 返回实际扫描用的路径列表：优先用 BackupPaths，为空则回退到老字段。
@@ -101,10 +105,10 @@ type RegisterResponse struct {
 	ServerID   int64  `json:"server_id"`
 	ServerName string `json:"server_name"`
 	Config     struct {
-		HeartbeatInterval       int    `json:"heartbeat_interval"`
-		WebsiteRefreshInterval  int    `json:"website_refresh_interval"`
-		ScanInterval            int    `json:"scan_interval"`
-		ReportEndpoint          string `json:"report_endpoint"`
+		HeartbeatInterval      int    `json:"heartbeat_interval"`
+		WebsiteRefreshInterval int    `json:"website_refresh_interval"`
+		ScanInterval           int    `json:"scan_interval"`
+		ReportEndpoint         string `json:"report_endpoint"`
 	} `json:"config"`
 }
 

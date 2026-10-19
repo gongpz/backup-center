@@ -28,10 +28,18 @@ import (
 
 // AgentVersion 随修复 bump：面板据版本号变化判断是否需要自更新。
 // 0.14.4：performAdvancedWebRestore 解压加 --unlink-first，
-//         修复宝塔 .user.ini 触发 GNU tar EEXIST 导致恢复「假失败」（exit 2）。
+//
+//	修复宝塔 .user.ini 触发 GNU tar EEXIST 导致恢复「假失败」（exit 2）。
+//
 // 0.14.5：自主备份上报 task batch_code（self_backup 指令 ID），
-//         Center 据此对高级模式备份按编码精确分组，不再依赖时间窗口。
-const AgentVersion = "0.14.5"
+//
+//	Center 据此对高级模式备份按编码精确分组，不再依赖时间窗口。
+//
+// 0.15.0：增量备份（backup_mode=incremental）：rsync --link-dest 硬链快照 +
+//
+//	incremental_backup 指令 + 快照恢复（path_type=dir）+ retention 目录
+//	purge（条项 is_dir）；数据库 dump 抽成 dumpDatabaseGz 与自主备份共用。
+const AgentVersion = "0.15.0"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -532,6 +540,17 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 			Output:    output,
 		})
 
+	case "incremental_backup":
+		// 增量备份（v0.15）：rsync --link-dest 硬链快照推网站根目录到 SFTP 目标
+		// 存储，数据库全量 dump 随快照存档（单目录自包含，见 incremental.go）
+		output, err := performIncrementalBackup(cmd, c, up, scn)
+		if err != nil {
+			slog.Warn("增量备份失败", "err", err, "id", cmd.ID)
+			_ = c.CommandResult(&client.CommandResultRequest{CommandID: cmd.ID, Status: "failed", Error: err.Error()})
+			return
+		}
+		_ = c.CommandResult(&client.CommandResultRequest{CommandID: cmd.ID, Status: "success", Output: output})
+
 	case "cleanup_retention":
 		// 保留期清理：删超期归档的云端文件，指令只带 log_id + remote_path，不含任何凭据
 		output, err := performRetentionCleanup(cmd, c)
@@ -565,9 +584,14 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 const cleanupProgressInterval = 20
 
 // performRetentionCleanup 删除超期备份的云端文件（C4）。
-// params.files 为数组，元素 {log_id: number, remote_path: string}；remote_path 原样取自库里存的值
-// （形如 bc_14:bucket/... 或加密后的 bc_14_c:...），直接用本地 rclone.conf 驱动，
-// 全程不接触任何存储凭据——这也是本指令存在的意义：Center 不再需要持存储密码跑 rclone。
+// params.files 为数组，元素 {log_id: number, remote_path: string, is_dir?: bool}；
+// remote_path 原样取自库里存的值（形如 bc_14:bucket/... 或加密后的 bc_14_c:...），
+// 直接用本地 rclone.conf 驱动，全程不接触任何存储凭据——这也是本指令存在的意义：
+// Center 不再需要持存储密码跑 rclone。
+// is_dir=true（v0.15 增量快照目录）时用 rclone purge 删整个目录；缺省/文件走
+// deletefile。purge 对"目录不存在"报 directory not found（含 "not found"），与
+// deletefile 的 not found 走同一幂等分支，所以同快照的 db 文件日志与快照目录
+// 日志无论先删哪个都收敛（先 purge 目录 → db 的 deletefile 记 missing）。
 //
 // 幂等语义是契约的关键：Center 只在指令 success 后才删 backup_logs 行，failed 时行保留下轮重派，
 // 所以 rclone 报 "not found" 必须计入"已不存在"（视为已删除），否则同一条会永远失败、行永远删不掉。
@@ -619,11 +643,22 @@ func performRetentionCleanup(cmd *client.PendingCommand, c *client.Client) (stri
 		}
 		logID, _ := parseInt64Param(entry["log_id"]) // 仅用于日志定位，删除动作不需要
 
-		rc := exec.Command("rclone", "deletefile",
-			"--config", rcloneConfPath,
-			"--retries", "2",
-			remotePath,
-		)
+		// is_dir=true（v0.15 增量快照目录，后端按 filename 命中 -snap-<stamp> 标记）：
+		// rclone purge 递归删整个目录；缺省按普通文件 deletefile
+		var rc *exec.Cmd
+		if isDir, _ := entry["is_dir"].(bool); isDir {
+			rc = exec.Command("rclone", "purge",
+				"--config", rcloneConfPath,
+				"--retries", "2",
+				remotePath,
+			)
+		} else {
+			rc = exec.Command("rclone", "deletefile",
+				"--config", rcloneConfPath,
+				"--retries", "2",
+				remotePath,
+			)
+		}
 		stderr := &strings.Builder{}
 		rc.Stderr = stderr
 		if err := rc.Run(); err == nil {
@@ -722,61 +757,43 @@ func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.S
 	dest := filepath.Join(localDir, filename)
 
 	slog.Info("开始远程恢复", "id", cmd.ID, "from", remotePath, "to", dest)
+
+	// v0.15 快照恢复分支（path_type=dir：后端只在快照日志的恢复指令里带此参数）：
+	// remote_path 指向远端**目录**（rsync 快照根），不能走下面面向单文件的 copyto
+	// 下载——交给 performSnapshotRestore 用 rclone copy 整目录拉回后再按
+	// advanced/lite 分流。website_id 仅 advanced 模式会下发（lite 拿不到也不需要），
+	// 解析失败按指令损坏处理。
+	if fmt.Sprint(p["path_type"]) == "dir" {
+		var w *client.Website
+		if raw, ok := p["website_id"]; ok && raw != nil {
+			siteID, perr := parseInt64Param(raw)
+			if perr != nil {
+				return "", fmt.Errorf("快照恢复 website_id 解析失败: %w", perr)
+			}
+			rw, rerr := resolveWebsiteForCommand(c, scn, up, siteID, "快照恢复")
+			if rerr != nil {
+				return "", rerr
+			}
+			w = &rw
+		}
+		return performSnapshotRestore(cmd, c, w, dest)
+	}
+
 	rcmd := exec.Command("rclone",
 		"copyto",
 		"--config", rcloneConfPath,
 		"--transfers", "1",
 		"--retries", "3",
 		"--low-level-retries", "5",
-		"--stats", "5s",         // 每 5s 打一次进度
+		"--stats", "5s", // 每 5s 打一次进度
 		"--stats-one-line",      // 单行进度（便于抓取）
 		"--log-level", "NOTICE", // 压掉逐文件 INFO 日志，保留进度行与错误
 		remotePath, dest,
 	)
-	// stderr 同时写入完整错误缓冲 + 进度抓取器：失败时用前者做错误信息，运行期用后者上报进度
-	fullErr := &strings.Builder{}
-	tracker := &progressTracker{}
-	rcmd.Stderr = io.MultiWriter(fullErr, tracker)
-
-	// 长任务进度回报：每 5s 把 rclone 最新进度行推给 Center（status 保持 dispatched）
-	stop := make(chan struct{})
-	var progWg sync.WaitGroup
-	progWg.Add(1)
-	go func() {
-		defer progWg.Done()
-		t := time.NewTicker(5 * time.Second)
-		defer t.Stop()
-		last := ""
-		for {
-			select {
-			case <-stop:
-				return
-			case <-t.C:
-				line := tracker.last()
-				if line == "" || line == last {
-					continue
-				}
-				last = line
-				if len(line) > 300 {
-					line = line[:300] + "…"
-				}
-				_ = c.CommandProgress(&client.CommandProgressRequest{
-					CommandID: cmd.ID,
-					Output:    line,
-				})
-			}
-		}
-	}()
-
-	runErr := rcmd.Run()
-	close(stop)
-	progWg.Wait()
-
-	if runErr != nil {
-		msg := strings.TrimSpace(fullErr.String())
-		if msg == "" {
-			msg = runErr.Error()
-		}
+	// 进度回报 + 完整错误缓冲统一下沉到 runRcloneWithProgress（快照恢复的 copy
+	// 复用同一 helper）：这里只按既有约定把失败信息截到头 1800 字节。
+	if err := runRcloneWithProgress(rcmd, cmd.ID, c); err != nil {
+		msg := err.Error()
 		if len(msg) > 1800 {
 			msg = msg[:1800] + "…"
 		}
@@ -1070,58 +1087,23 @@ func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploade
 			webSize = fi.Size()
 			products = append(products, "网站目录 "+humanizeBytes(webSize))
 		}
-		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, arcName, arcPath, webSize, backupAt); err != nil {
+		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, arcName, arcPath, webSize, backupAt, w.StorageIDs); err != nil {
 			slog.Warn("上报/上传网站目录失败", "err", err)
 		} else {
 			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "网站目录已上传: " + arcName})
 		}
 	}
 
-	// 2) 数据库导出
+	// 2) 数据库导出（dump 逻辑与增量备份共用，见 dumpDatabaseGz：增量快照内的 db
+	//    文件与 self 备份同名同构，恢复侧 performAdvancedDBRestore 不区分来源）
 	if w.DBType != "" {
-		sqlName := fmt.Sprintf("%s-db-%s.sql", safe, stamp)
-		sqlPath := filepath.Join(tmpDir, sqlName)
-		if w.DBType == "mysql" {
-			cnfPath := filepath.Join(tmpDir, fmt.Sprintf("my-%d.cnf", os.Getpid()))
-			cnf := fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\n",
-				w.DBUser, w.DBPassword, w.DBHost, dbPortOrDefault(w.DBPort, "mysql"))
-			if werr := os.WriteFile(cnfPath, []byte(cnf), 0600); werr != nil {
-				return "", fmt.Errorf("写入 mysqldump 配置失败: %w", werr)
-			}
-			dump := exec.Command("mysqldump", "--defaults-extra-file="+cnfPath, "--single-transaction", "--routines", "--events", w.DBName)
-			if path, lerr := exec.LookPath("mariadb-dump"); lerr == nil {
-				dump = exec.Command(path, "--defaults-extra-file="+cnfPath, "--single-transaction", w.DBName)
-			}
-			outF, oerr := os.Create(sqlPath)
-			if oerr != nil {
-				return "", fmt.Errorf("创建数据库导出文件失败: %w", oerr)
-			}
-			dump.Stdout = outF
-			stderr := &strings.Builder{}
-			dump.Stderr = stderr
-			if rerr := dump.Run(); rerr != nil {
-				outF.Close()
-				return "", fmt.Errorf("mysqldump 失败: %v\n%s", rerr, stderr.String())
-			}
-			outF.Close()
-		} else if w.DBType == "postgresql" {
-			dump := exec.Command("pg_dump", "-h", w.DBHost, "-p", strconv.Itoa(dbPortOrDefault(w.DBPort, "postgresql")), "-U", w.DBUser, "-d", w.DBName, "-f", sqlPath)
-			dump.Env = append(os.Environ(), "PGPASSWORD="+w.DBPassword)
-			stderr := &strings.Builder{}
-			dump.Stderr = stderr
-			if rerr := dump.Run(); rerr != nil {
-				return "", fmt.Errorf("pg_dump 失败: %v\n%s", rerr, stderr.String())
-			}
+		gzPath, size, derr := dumpDatabaseGz(w, tmpDir, safe, stamp)
+		if derr != nil {
+			return "", derr
 		}
-		gzPath := sqlPath + ".gz"
-		if gerr := exec.Command("gzip", "-f", sqlPath).Run(); gerr != nil {
-			return "", fmt.Errorf("压缩数据库导出失败: %w", gerr)
-		}
-		if fi, ferr := os.Stat(gzPath); ferr == nil {
-			dbSize = fi.Size()
-			products = append(products, "数据库 "+humanizeBytes(dbSize))
-		}
-		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, filepath.Base(gzPath), gzPath, dbSize, backupAt); err != nil {
+		dbSize = size
+		products = append(products, "数据库 "+humanizeBytes(dbSize))
+		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, filepath.Base(gzPath), gzPath, dbSize, backupAt, w.StorageIDs); err != nil {
 			slog.Warn("上报/上传数据库失败", "err", err)
 		} else {
 			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "数据库已上传: " + filepath.Base(gzPath)})
@@ -1136,6 +1118,61 @@ func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploade
 		summary += "（未配置存储目标，仅生成本地记录）"
 	}
 	return summary, nil
+}
+
+// dumpDatabaseGz 导出数据库并 gzip 压缩，产出 <safe>-db-<stamp>.sql.gz。
+// 自主备份（performSelfBackup）与增量备份（performIncrementalBackup）共用的 db dump
+// 逻辑：mysqldump/mariadb-dump/pg_dump + gzip -f 逐行保持原 self_backup 实现。
+// 增量快照里的 db 文件与 self 备份同名同构，恢复侧 performAdvancedDBRestore 无需
+// 区分来源；w.DBType 为空（纯静态站）时返回空串、不生成任何文件。
+// 返回 (gzPath, dbSize, error)。
+func dumpDatabaseGz(w client.Website, tmpDir, safe, stamp string) (string, int64, error) {
+	if w.DBType == "" {
+		return "", 0, nil
+	}
+	sqlName := fmt.Sprintf("%s-db-%s.sql", safe, stamp)
+	sqlPath := filepath.Join(tmpDir, sqlName)
+	if w.DBType == "mysql" {
+		cnfPath := filepath.Join(tmpDir, fmt.Sprintf("my-%d.cnf", os.Getpid()))
+		cnf := fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\n",
+			w.DBUser, w.DBPassword, w.DBHost, dbPortOrDefault(w.DBPort, "mysql"))
+		if werr := os.WriteFile(cnfPath, []byte(cnf), 0600); werr != nil {
+			return "", 0, fmt.Errorf("写入 mysqldump 配置失败: %w", werr)
+		}
+		dump := exec.Command("mysqldump", "--defaults-extra-file="+cnfPath, "--single-transaction", "--routines", "--events", w.DBName)
+		if path, lerr := exec.LookPath("mariadb-dump"); lerr == nil {
+			dump = exec.Command(path, "--defaults-extra-file="+cnfPath, "--single-transaction", w.DBName)
+		}
+		outF, oerr := os.Create(sqlPath)
+		if oerr != nil {
+			return "", 0, fmt.Errorf("创建数据库导出文件失败: %w", oerr)
+		}
+		dump.Stdout = outF
+		stderr := &strings.Builder{}
+		dump.Stderr = stderr
+		if rerr := dump.Run(); rerr != nil {
+			outF.Close()
+			return "", 0, fmt.Errorf("mysqldump 失败: %v\n%s", rerr, stderr.String())
+		}
+		outF.Close()
+	} else if w.DBType == "postgresql" {
+		dump := exec.Command("pg_dump", "-h", w.DBHost, "-p", strconv.Itoa(dbPortOrDefault(w.DBPort, "postgresql")), "-U", w.DBUser, "-d", w.DBName, "-f", sqlPath)
+		dump.Env = append(os.Environ(), "PGPASSWORD="+w.DBPassword)
+		stderr := &strings.Builder{}
+		dump.Stderr = stderr
+		if rerr := dump.Run(); rerr != nil {
+			return "", 0, fmt.Errorf("pg_dump 失败: %v\n%s", rerr, stderr.String())
+		}
+	}
+	gzPath := sqlPath + ".gz"
+	if gerr := exec.Command("gzip", "-f", sqlPath).Run(); gerr != nil {
+		return "", 0, fmt.Errorf("压缩数据库导出失败: %w", gerr)
+	}
+	var dbSize int64
+	if fi, ferr := os.Stat(gzPath); ferr == nil {
+		dbSize = fi.Size()
+	}
+	return gzPath, dbSize, nil
 }
 
 func parseInt64Param(v interface{}) (int64, error) {
@@ -1194,8 +1231,12 @@ func humanizeBytes(b int64) string {
 	return fmt.Sprintf("%.1f TB", float64(b)/div)
 }
 
-// reportAndUpload 上报一条备份记录并（同步）上传到所有目标存储
-func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID int64, w client.Website, filename, fullPath string, size int64, backupAt time.Time) error {
+// reportAndUpload 上报一条备份记录并（同步）上传到指定目标存储。
+// storageIDs 由调用方给：自主备份传 w.StorageIDs（网站配置的全部存储）；
+// 增量备份只推 SFTP 目标存储（不走 website.storage_ids，避免全量产物重复推
+// VPS）——但增量的产物落在快照目录而非标准布局，实际上改用 incremental.go 的
+// reportIncrementalLog + UploadToExactPath 直报，不走本函数。
+func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID int64, w client.Website, filename, fullPath string, size int64, backupAt time.Time, storageIDs []int64) error {
 	resp, err := c.Report(&client.ReportRequest{
 		WebsiteID: websiteID,
 		Filename:  filename,
@@ -1211,7 +1252,7 @@ func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID i
 	if err != nil {
 		return fmt.Errorf("上报备份记录失败: %w", err)
 	}
-	up.ProcessBackup(resp.LogID, fullPath, w.Name, backupAt, w.StorageIDs)
+	up.ProcessBackup(resp.LogID, fullPath, w.Name, backupAt, storageIDs)
 	return nil
 }
 
@@ -1239,6 +1280,90 @@ func (t *progressTracker) last() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.line
+}
+
+// syncBuf 带锁的 strings.Builder：exec.Cmd 的 Stdout/Stderr 由各自 goroutine
+// 并发拷贝（rclone 只写 stderr；rsync 的 progress2 走 stdout），直接共用
+// strings.Builder 会数据竞争，包一层互斥锁即可安全复用。
+type syncBuf struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// startProgressLoop 起一个 5s ticker：把 tracker 的最新进度行推给 Center
+// （截断 300 字节，status 保持 dispatched，长任务专用）。
+// 返回 stop：关闭通道并等待 goroutine 退出——必须等它停下再读错误缓冲，
+// 否则与抓取 goroutine 构成数据竞争。
+func startProgressLoop(commandID int64, c *client.Client, tracker *progressTracker) func() {
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		last := ""
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				line := tracker.last()
+				if line == "" || line == last {
+					continue
+				}
+				last = line
+				if len(line) > 300 {
+					line = line[:300] + "…"
+				}
+				_ = c.CommandProgress(&client.CommandProgressRequest{
+					CommandID: commandID,
+					Output:    line,
+				})
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		wg.Wait()
+	}
+}
+
+// runRcloneWithProgress 跑一条长任务 rclone 命令（restore 的 copyto / 快照恢复的
+// copy）：stdout+stderr 合并抓取，期间每 5s 上报最新进度行。失败时返回的错误
+// 信息即完整输出文本（可能很长），由调用方按约定截断（restore/copy 路径取头
+// 1800 字节）。
+func runRcloneWithProgress(rcmd *exec.Cmd, commandID int64, c *client.Client) error {
+	buf := &syncBuf{}
+	tracker := &progressTracker{}
+	out := io.MultiWriter(buf, tracker)
+	rcmd.Stdout = out
+	rcmd.Stderr = out
+
+	stop := startProgressLoop(commandID, c, tracker)
+	runErr := rcmd.Run()
+	stop()
+
+	if runErr != nil {
+		msg := strings.TrimSpace(buf.String())
+		if msg == "" {
+			msg = runErr.Error()
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }
 
 func downloadFile(url, dest string) error {

@@ -120,6 +120,37 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 		return
 	}
 
+	u.uploadWithTarget(logID, storageID, localFile, remoteTarget, storage)
+}
+
+// UploadToExactPath 把本地文件上传到**精确远端路径**（增量快照的 db dump 用：
+// 快照目录由 rsync 直接创建，不走 remoteTargetPath 的 <site>/<batchDir>/ 布局）。
+// 上传旗标与 uploadOne 完全一致（--s3-no-head-object --no-check-dest 等）。
+// storageIDs 通常只有增量目标存储一个元素；逐个上传、互不影响、逐个上报。
+// 注意：本方法不做加密判断（remoteTarget 由调用方直拼，无法经 crypt 中转），
+// 加密存储的显式拒绝在增量入口做（见 incremental.go performIncrementalBackup）。
+func (u *Uploader) UploadToExactPath(logID int64, localFile, remoteTarget string, storageIDs []int64) {
+	for _, sid := range storageIDs {
+		storage, ok := u.StorageByID(sid)
+		if !ok {
+			slog.Warn("上传目标存储不存在", "log_id", logID, "storage_id", sid)
+			u.report(logID, sid, client.UploadReportRequest{
+				BackupLogID:  logID,
+				StorageID:    sid,
+				Status:       "failed",
+				ErrorMessage: "storage not found in agent config (拉配置延迟或该存储已删除)",
+			})
+			continue
+		}
+		u.uploadWithTarget(logID, sid, localFile, remoteTarget, storage)
+	}
+}
+
+// uploadWithTarget 执行一次 rclone copyto 上传并上报 uploading/uploaded/failed。
+// uploadOne 与 UploadToExactPath 的唯一差别是 remoteTarget 的来源
+// （remoteTargetPath 的 <site>/<batchDir>/ 布局 vs 调用方直拼），
+// 旗标、截断、重试语义在两类路径上必须完全一致，故抽到这里共用。
+func (u *Uploader) uploadWithTarget(logID, storageID int64, localFile, remoteTarget string, storage client.Storage) {
 	// 报 uploading
 	u.report(logID, storageID, client.UploadReportRequest{
 		BackupLogID: logID,
@@ -159,7 +190,7 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	duration := int(time.Since(start).Seconds())
 
 	fileSize := int64(0)

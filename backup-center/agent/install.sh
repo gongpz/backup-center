@@ -67,6 +67,29 @@ if ! command -v rclone >/dev/null 2>&1; then
 fi
 echo "[install] rclone 版本: $(rclone version 2>/dev/null | head -1)"
 
+# ---------- 装 rsync + ssh 客户端（Agent v0.15+ 增量备份需要）----------
+# 缺失只警告不中断：全量备份/恢复等既有功能不依赖 rsync。ssh 客户端在不同发行版
+# 包名不同（apt 系 openssh-client / yum 系 openssh-clients），按包管理器分别兜底。
+for tool in rsync ssh; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "[install] 未检测到 $tool，正在安装（增量备份需要）..."
+    if command -v apt-get >/dev/null 2>&1; then
+      if [ "$tool" = "ssh" ]; then
+        apt-get install -y -qq openssh-client >/dev/null 2>&1
+      else
+        apt-get install -y -qq "$tool" >/dev/null 2>&1
+      fi
+    elif command -v yum >/dev/null 2>&1; then
+      if [ "$tool" = "ssh" ]; then
+        yum install -y -q openssh-clients >/dev/null 2>&1
+      else
+        yum install -y -q "$tool" >/dev/null 2>&1
+      fi
+    fi
+    command -v "$tool" >/dev/null 2>&1 || echo "[install] ⚠ $tool 安装失败：增量备份将不可用，其余功能不受影响" >&2
+  fi
+done
+
 # ---------- 目录 / 用户 ----------
 INSTALL_DIR="/opt/backup-agent"
 CONFIG_DIR="/etc/backup-agent"
