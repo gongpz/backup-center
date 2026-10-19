@@ -26,7 +26,10 @@ import (
 	"github.com/gongpz/backup-center/agent/internal/uploader"
 )
 
-const AgentVersion = "0.14.3"
+// AgentVersion 随修复 bump：面板据版本号变化判断是否需要自更新。
+// 0.14.4：performAdvancedWebRestore 解压加 --unlink-first，
+//         修复宝塔 .user.ini 触发 GNU tar EEXIST 导致恢复「假失败」（exit 2）。
+const AgentVersion = "0.14.4"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
