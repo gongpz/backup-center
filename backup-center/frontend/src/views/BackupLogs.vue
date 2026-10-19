@@ -116,6 +116,7 @@ const fmtTime = (iso) => {
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
   return d.toLocaleDateString()
 }
+const fmtFull = (iso) => (iso ? new Date(iso).toLocaleString() : '—')
 const fmtSize = (bytes) => {
   if (!bytes) return '—'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -134,6 +135,84 @@ const fmtDuration = (sec) => {
   return s ? `${m}m ${s}s` : `${m}m`
 }
 
+/* ---------- 备份套件分组：同网站 + backup_at 相差 ≤30 分钟 = 同一次备份 ----------
+   与后端 RestoreController 的 suite 合并同源：list 按 backup_at 倒序，倒序遍历，
+   每个文件尝试并入最后一个（当前最旧）套件，与组内最早文件比较（防链式合并）。
+   分页场景下同组文件跨页会拆成两个套件（可接受，不为此改后端 API）。 */
+const SUITE_WINDOW_MS = 30 * 60 * 1000
+const groupedSuites = computed(() => {
+  const suites = []
+  for (const row of list.value) {
+    const at = row.backup_at ? new Date(row.backup_at).getTime() : null
+    const last = suites[suites.length - 1]
+    if (last && last.websiteId === row.website_id && at) {
+      const earliest = Math.min(
+        ...last.files.map((f) => (f.backup_at ? new Date(f.backup_at).getTime() : at)),
+      )
+      if (Math.abs(earliest - at) <= SUITE_WINDOW_MS) {
+        last.files.push(row)
+        continue
+      }
+    }
+    suites.push({ key: `suite-${row.id}`, websiteId: row.website_id, files: [row] })
+  }
+  return suites
+})
+
+// 聚合展示：状态/上传状态「最坏优先」；时间/网站取组内最新（list 倒序，第一个最新）
+const suiteRows = computed(() =>
+  groupedSuites.value.map((s) => {
+    const files = s.files
+    const status = files.some((f) => f.status === 'failed')
+      ? 'failed'
+      : files.some((f) => f.status === 'running')
+        ? 'running'
+        : 'success'
+    const uploadStatus = files.some((f) => f.upload_status === 'upload_failed')
+      ? 'upload_failed'
+      : files.every((f) => f.upload_status === 'uploaded')
+        ? 'uploaded'
+        : files.some((f) => f.upload_status === 'uploading')
+          ? 'uploading'
+          : 'pending'
+    const first = files[0]
+    return {
+      ...s,
+      fileCount: files.length,
+      totalSize: files.reduce((sum, f) => sum + (f.size || 0), 0),
+      totalDuration: files.reduce((sum, f) => sum + (f.duration_seconds || 0), 0),
+      latestAt: first?.backup_at,
+      website: first?.website,
+      server: first?.server,
+      // 文件列副行：父目录（组内首个文件的 full_path 目录名）
+      parentDir: first?.full_path ? pathBasename(dirname(first.full_path)) : '',
+      status,
+      uploadStatus,
+    }
+  }),
+)
+
+// 文件类型（与恢复页 chip 语义一致）：网站目录 / 数据库 / 其他备份文件
+const fileTypeOf = (filename) => {
+  const n = String(filename || '')
+  if (n.includes('-web-') && n.endsWith('.tar.gz')) return 'website'
+  if (n.includes('-db-') && n.endsWith('.sql.gz')) return 'database'
+  return 'file'
+}
+const fileTypeMeta = {
+  website:  { text: '网站目录', cls: 'chip-blue' },
+  database: { text: '数据库',   cls: 'chip-purple' },
+  file:     { text: '备份文件', cls: 'chip-neutral' },
+}
+
+/* ---------- 详情弹窗 ---------- */
+const detailOpen = ref(false)
+const detailSuite = ref(null)
+const openDetail = (suite) => {
+  detailSuite.value = suite
+  detailOpen.value = true
+}
+
 const total = computed(() => meta.total)
 </script>
 
@@ -142,7 +221,7 @@ const total = computed(() => meta.total)
     <div class="toolbar">
       <div>
         <h2 class="page-h">备份记录</h2>
-        <p class="page-sub">共 {{ total }} 条记录 · 后台每 30 秒静默刷新</p>
+        <p class="page-sub">共 {{ total }} 个备份文件 · 同一次备份的多个文件整合为一条 · 后台每 30 秒静默刷新</p>
       </div>
       <div class="actions">
         <el-button :icon="Refresh" @click="fetch" :loading="loading">刷新</el-button>
@@ -189,88 +268,20 @@ const total = computed(() => meta.total)
 
     <div class="table-card bc-card">
       <el-table
-        :data="list"
+        :data="suiteRows"
         v-loading="loading"
         class="backup-logs-table"
         style="width: 100%"
-        row-key="id"
+        row-key="key"
         empty-text="暂无备份记录 · Agent 发现新备份文件后会自动上报"
       >
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div class="expand-panel">
-              <div class="expand-title">上传到远端存储的结果</div>
-              <div v-if="!row.uploads || row.uploads.length === 0" class="expand-empty">
-                该备份没有触发任何存储上传（未配置目标存储 / 上传队列尚未启动）
-              </div>
-              <el-table v-else :data="row.uploads" size="small" style="width: 100%">
-                <el-table-column label="存储" width="180">
-                  <template #default="{ row: u }">
-                    <div class="strong">{{ u.storage_name }}</div>
-                    <div class="muted">{{ u.storage_type || '' }}</div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="100">
-                  <template #default="{ row: u }">
-                    <span :class="['badge', uploadCellMeta[u.status]?.cls || 'gray']">
-                      {{ uploadCellMeta[u.status]?.text || u.status }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="大小" width="90">
-                  <template #default="{ row: u }">
-                    <span class="muted">{{ fmtSize(u.uploaded_bytes) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="用时" width="80">
-                  <template #default="{ row: u }">
-                    <span class="muted">{{ fmtDuration(u.duration_seconds) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="尝试" width="70">
-                  <template #default="{ row: u }">
-                    <span class="muted">{{ u.attempts || 0 }} 次</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="完成时间" width="130">
-                  <template #default="{ row: u }">
-                    <span class="muted">{{ fmtTime(u.finished_at) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="错误 / 远端路径" min-width="240">
-                  <template #default="{ row: u }">
-                    <!-- 防御：重试成功后 error_message 可能残留；uploaded 成功态不再当硬错误展示，
-                         优先显示远端路径，无路径时降级为灰色弱提示。失败状态保持 ❌ 原样。 -->
-                    <div v-if="u.error_message && u.status !== 'uploaded'" class="err-msg" :title="u.error_message">
-                      ❌ {{ u.error_message }}
-                    </div>
-                    <div v-else-if="u.remote_path" class="mono muted" :title="u.remote_path">
-                      {{ u.remote_path }}
-                    </div>
-                    <div v-else-if="u.error_message" class="muted" :title="u.error_message">
-                      曾有失败尝试，已重传成功
-                    </div>
-                    <span v-else class="muted">—</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <div class="expand-foot">
-                <el-button link type="primary" @click="gotoRestore">去数据恢复 →</el-button>
-              </div>
-              <div v-if="row.error_message" class="log-err">
-                <b>备份错误：</b>{{ row.error_message }}
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="文件" min-width="120">
+        <el-table-column label="文件" min-width="170">
           <template #default="{ row }">
             <div class="cell-file">
-              <div class="mono strong" :title="row.filename">{{ row.filename }}</div>
-              <div class="muted" v-if="row.full_path && row.full_path !== row.filename" :title="row.full_path">
-                {{ pathBasename(dirname(row.full_path)) || '—' }}
+              <div class="strong" :title="row.files.map((f) => f.filename).join('\n')">
+                {{ row.fileCount }} 个文件
               </div>
+              <div class="muted" v-if="row.parentDir" :title="row.files[0]?.full_path">{{ row.parentDir }}</div>
             </div>
           </template>
         </el-table-column>
@@ -292,19 +303,19 @@ const total = computed(() => meta.total)
 
         <el-table-column label="大小" width="100">
           <template #default="{ row }">
-            <span class="strong">{{ fmtSize(row.size) }}</span>
+            <span class="strong">{{ fmtSize(row.totalSize) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="用时" width="90">
           <template #default="{ row }">
-            <span class="muted">{{ fmtDuration(row.duration_seconds) }}</span>
+            <span class="muted">{{ fmtDuration(row.totalDuration) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="备份时间" width="130">
           <template #default="{ row }">
-            <span class="muted">{{ fmtTime(row.backup_at) }}</span>
+            <span class="muted" :title="fmtFull(row.latestAt)">{{ fmtTime(row.latestAt) }}</span>
           </template>
         </el-table-column>
 
@@ -318,15 +329,15 @@ const total = computed(() => meta.total)
 
         <el-table-column label="云上传" width="130">
           <template #default="{ row }">
-            <span :class="['badge', uploadMeta[row.upload_status]?.cls]">
-              {{ uploadMeta[row.upload_status]?.text || '—' }}
+            <span :class="['badge', uploadMeta[row.uploadStatus]?.cls]">
+              {{ uploadMeta[row.uploadStatus]?.text || '—' }}
             </span>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
-            <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -341,11 +352,152 @@ const total = computed(() => meta.total)
         />
       </div>
     </div>
+
+    <!-- 备份套件详情：组内多个文件 + 各自上传结果 -->
+    <el-dialog v-model="detailOpen" title="备份详情" width="680px" append-to-body>
+      <div v-if="detailSuite" class="suite-detail">
+        <div class="detail-summary">
+          <span class="summary-time">{{ fmtFull(detailSuite.latestAt) }}</span>
+          <span class="summary-meta">{{ detailSuite.fileCount }} 个文件 · 共 {{ fmtSize(detailSuite.totalSize) }}</span>
+        </div>
+        <div v-if="detailSuite.website" class="detail-site">
+          <span class="strong">{{ detailSuite.website.name }}</span>
+          <span v-if="detailSuite.website.domain" class="muted"> · {{ detailSuite.website.domain }}</span>
+          <span v-if="detailSuite.server" class="muted"> · {{ detailSuite.server.name }}</span>
+        </div>
+
+        <el-table :data="detailSuite.files" size="small" style="width: 100%" class="detail-files-table">
+          <el-table-column type="expand">
+            <template #default="{ row }">
+              <div class="expand-panel">
+                <div class="expand-title">上传到远端存储的结果</div>
+                <div v-if="!row.uploads || row.uploads.length === 0" class="expand-empty">
+                  该备份没有触发任何存储上传（未配置目标存储 / 上传队列尚未启动）
+                </div>
+                <el-table v-else :data="row.uploads" size="small" style="width: 100%">
+                  <el-table-column label="存储" width="160">
+                    <template #default="{ row: u }">
+                      <div class="strong">{{ u.storage_name }}</div>
+                      <div class="muted">{{ u.storage_type || '' }}</div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="90">
+                    <template #default="{ row: u }">
+                      <span :class="['badge', uploadCellMeta[u.status]?.cls || 'gray']">
+                        {{ uploadCellMeta[u.status]?.text || u.status }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="大小" width="80">
+                    <template #default="{ row: u }">
+                      <span class="muted">{{ fmtSize(u.uploaded_bytes) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="用时" width="70">
+                    <template #default="{ row: u }">
+                      <span class="muted">{{ fmtDuration(u.duration_seconds) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="尝试" width="60">
+                    <template #default="{ row: u }">
+                      <span class="muted">{{ u.attempts || 0 }} 次</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="完成时间" width="120">
+                    <template #default="{ row: u }">
+                      <span class="muted">{{ fmtTime(u.finished_at) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="错误 / 远端路径" min-width="200">
+                    <template #default="{ row: u }">
+                      <!-- 防御：重试成功后 error_message 可能残留；uploaded 成功态不再当硬错误展示 -->
+                      <div v-if="u.error_message && u.status !== 'uploaded'" class="err-msg" :title="u.error_message">
+                        ❌ {{ u.error_message }}
+                      </div>
+                      <div v-else-if="u.remote_path" class="mono muted" :title="u.remote_path">
+                        {{ u.remote_path }}
+                      </div>
+                      <div v-else-if="u.error_message" class="muted" :title="u.error_message">
+                        曾有失败尝试，已重传成功
+                      </div>
+                      <span v-else class="muted">—</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="row.error_message" class="log-err">
+                  <b>备份错误：</b>{{ row.error_message }}
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="文件" min-width="200">
+            <template #default="{ row }">
+              <div class="cell-file">
+                <div class="mono strong" :title="row.full_path">{{ row.filename }}</div>
+                <div class="muted" v-if="row.full_path && row.full_path !== row.filename" :title="row.full_path">
+                  {{ pathBasename(dirname(row.full_path)) || '—' }}
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="类型" width="90">
+            <template #default="{ row }">
+              <span class="chip" :class="fileTypeMeta[fileTypeOf(row.filename)].cls">
+                {{ fileTypeMeta[fileTypeOf(row.filename)].text }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="大小" width="90">
+            <template #default="{ row }">
+              <span class="strong">{{ fmtSize(row.size) }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="备份时间" width="120">
+            <template #default="{ row }">
+              <span class="muted" :title="fmtFull(row.backup_at)">{{ fmtTime(row.backup_at) }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <span :class="['badge', statusMeta[row.status]?.cls]">
+                {{ statusMeta[row.status]?.text }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="云上传" width="110">
+            <template #default="{ row }">
+              <span :class="['badge', uploadMeta[row.upload_status]?.cls]">
+                {{ uploadMeta[row.upload_status]?.text || '—' }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="操作" width="70" fixed="right">
+            <template #default="{ row }">
+              <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <template #footer>
+        <div class="detail-foot">
+          <span class="muted">删除单个文件不影响其他文件与云端归档</span>
+          <el-button link type="primary" @click="gotoRestore">去数据恢复 →</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-/* 主表列序：1 展开 2 文件 3 网站 4 服务器 5 大小 6 用时 7 备份时间 8 状态 9 云上传 10 操作(始终保留) */
+/* 主表列序：1 文件 2 网站 3 服务器 4 大小 5 用时 6 备份时间 7 状态 8 云上传 9 操作(始终保留) */
 .toolbar {
   display: flex;
   align-items: center;
@@ -400,6 +552,47 @@ const total = computed(() => meta.total)
 .badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 .badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
+/* 类型 chip（与恢复页语义一致：蓝=网站目录 / 紫=数据库 / 中性=其他备份文件） */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 1px 12px;
+  border-radius: 999px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.chip-blue    { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
+.chip-purple  { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
+.chip-neutral { background: var(--bc-bg-inset); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
+
+/* ---------- 详情弹窗 ---------- */
+.suite-detail { min-width: 0; }
+.detail-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.summary-time { font-size: var(--bc-fs-md); font-weight: 600; color: var(--bc-text-primary); }
+.summary-meta {
+  font-size: var(--bc-fs-xs);
+  color: var(--bc-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.detail-site { margin-top: 4px; font-size: 12px; }
+.detail-files-table { margin-top: 12px; }
+
+.detail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .expand-panel {
   padding: 12px 20px 8px 60px;
   background: var(--bc-bg-page);
@@ -410,8 +603,6 @@ const total = computed(() => meta.total)
   color: var(--bc-text-primary);
   margin-bottom: 8px;
 }
-.expand-foot { margin-top: 8px; }
-.expand-foot .el-button { margin-left: 0; padding-left: 0; }
 .expand-empty {
   padding: 12px;
   color: var(--bc-text-secondary);
