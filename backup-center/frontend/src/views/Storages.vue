@@ -1,11 +1,12 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Connection, Link } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Connection, Link, FolderOpened } from '@element-plus/icons-vue'
 import { storagesApi } from '@/api/storages'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { storageTypes, typeMeta } from '@/utils/storage-types'
 import StorageFormDialog from '@/components/StorageFormDialog.vue'
+import StorageBrowserDialog from '@/components/StorageBrowserDialog.vue'
 
 const list = ref([])
 const meta = reactive({ current_page: 1, total: 0, per_page: 20 })
@@ -63,6 +64,12 @@ const openEdit = async (row) => {
   }
 }
 const onSaved = () => fetch()
+
+// 只读文件浏览器（VPS 备份文件浏览）：全部存储行都显示「浏览」，
+// 不支持的类型（如 agent_local 加密）点击后由弹窗内给出明确原因
+const browseId = ref(null)
+const browseOpen = ref(false)
+const browse = (row) => { browseId.value = row.id; browseOpen.value = true }
 
 const testing = ref({})
 const test = async (row) => {
@@ -266,9 +273,10 @@ const usageClass = (row) => {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="270" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.access_url" link :icon="Link" @click="visitStorage(row)">访问</el-button>
+            <el-button link :icon="FolderOpened" @click="browse(row)">浏览</el-button>
             <el-button link :icon="Connection" :loading="testing[row.id]" @click="test(row)">测试</el-button>
             <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
@@ -288,6 +296,7 @@ const usageClass = (row) => {
     </div>
 
     <StorageFormDialog v-model="formOpen" :storage="editing" @saved="onSaved" />
+    <StorageBrowserDialog v-model="browseOpen" :storage-id="browseId" />
   </div>
 </template>
 

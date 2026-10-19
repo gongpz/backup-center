@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box, Document, Files } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box, Document, Files, FolderOpened } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
 import { commandsApi } from '@/api/commands'
 import { serversApi } from '@/api/servers'
@@ -9,6 +9,7 @@ import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { humanize as humanizeSchedule } from '@/utils/schedule'
 import WebsiteFormDialog from '@/components/WebsiteFormDialog.vue'
 import WebsiteBindDialog from '@/components/WebsiteBindDialog.vue'
+import StorageBrowserDialog from '@/components/StorageBrowserDialog.vue'
 
 const list = ref([])
 const meta = reactive({ current_page: 1, total: 0, per_page: 20 })
@@ -89,6 +90,16 @@ const detailRow = ref(null)
 const openDetail = (row) => {
   detailRow.value = row
   detailOpen.value = true
+}
+
+/* 备份文件浏览器（只读）：增量站直达该站在增量存储上的快照根 */
+const browseOpen = ref(false)
+const browseStorageId = ref(null)
+const browseWebsiteId = ref(null)
+const openBrowse = (row) => {
+  browseStorageId.value = row.incremental_storage_id
+  browseWebsiteId.value = row.id
+  browseOpen.value = true
 }
 
 // 一键同步：触发所属 Agent 立即扫描 backup_paths，把未上传的文件推到各存储
@@ -371,7 +382,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="520" fixed="right">
+        <el-table-column label="操作" width="580" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link :icon="Document" @click="openDetail(row)">详情</el-button>
@@ -399,6 +410,12 @@ const total = computed(() => meta.total)
                 :loading="incrementingIds.has(row.id)"
                 @click="incrementalBackupNow(row)"
               >增量备份</el-button>
+              <el-button
+                v-if="row.backup_source === 'self' && row.backup_mode === 'incremental'"
+                link
+                :icon="FolderOpened"
+                @click="openBrowse(row)"
+              >浏览备份</el-button>
               <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
@@ -420,6 +437,7 @@ const total = computed(() => meta.total)
 
     <WebsiteFormDialog v-model="formOpen" :website="editing" @saved="onSaved" />
     <WebsiteBindDialog v-model="bindOpen" :website="bindingWebsite" @saved="onBindSaved" />
+    <StorageBrowserDialog v-model="browseOpen" :storage-id="browseStorageId" :website-id="browseWebsiteId" />
 
     <el-dialog v-model="detailOpen" title="网站详情" width="560px" append-to-body>
       <div v-if="detailRow" class="detail-body">

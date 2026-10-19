@@ -19,4 +19,8 @@ export const storagesApi = {
   test(id) {
     return http.post(`/storages/${id}/test`).then((r) => r.data)
   },
+  // 只读浏览存储内的备份文件：path = 远端目录（可空），website_id = 增量网站（可空，直达该站快照根）
+  browseFiles(id, params = {}) {
+    return http.get(`/storages/${id}/files`, { params }).then((r) => r.data)
+  },
 }

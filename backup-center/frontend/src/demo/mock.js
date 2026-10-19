@@ -599,6 +599,177 @@ function buildDashboard(range) {
 }
 
 /* ============================================================
+   VPS 备份文件浏览（只读）· 演示树
+   路径口径与 Agent uploader 对齐：<base_path>/<sanitize(站名)>/<YYYYMMDD-HHMMSS>/
+   sanitize 只替换 / \ : * ? " < > |（中文原样保留），空串回落 default
+   ============================================================ */
+
+// Go sanitizePathSegment 的演示复刻（中文保留）
+const sanitizeSegment = (name) => {
+  const s = String(name || '').trim().replace(/[/\\:*?"<>|]/g, '_')
+  return s || 'default'
+}
+
+// 演示节点：文件带 size；目录带 children（递归统计后填 recursiveSize/recursiveCount）
+const demoFile = (name, size, mtime) => ({ name, isDir: false, size, mtime, children: null })
+const demoDir = (name, mtime, children) => ({ name, isDir: true, size: null, mtime, children: children || [] })
+
+// 自底向上求和：每个目录节点得到 recursiveSize / recursiveCount（只数文件，与 rclone size 口径一致）
+const calcRecursive = (nodes) => {
+  let size = 0
+  let count = 0
+  for (const n of nodes) {
+    if (n.isDir) {
+      const sub = calcRecursive(n.children)
+      n.recursiveSize = sub.size
+      n.recursiveCount = sub.count
+      size += sub.size
+      count += sub.count
+    } else {
+      n.recursiveSize = n.size
+      n.recursiveCount = 1
+      size += n.size
+      count += 1
+    }
+  }
+  return { size, count }
+}
+
+// 路径 → 演示节点索引（含递归统计）
+const indexTree = (nodes, prefix, index) => {
+  for (const n of nodes) {
+    const p = prefix ? `${prefix}/${n.name}` : n.name
+    index[p] = n
+    if (n.isDir) indexTree(n.children, p, index)
+  }
+  return index
+}
+
+// 父目录（根目录返回 null）
+const browseParent = (p) => {
+  const s = String(p || '').replace(/\/+$/, '')
+  const i = s.lastIndexOf('/')
+  return i <= 0 ? null : s.slice(0, i)
+}
+
+// storage 5（VPS 增量存储）主演示树：rsync 硬链快照布局，站名 = sanitize 后的网站名
+const DEMO_TREE_S5 = [
+  demoDir('官网主站', hours(2), [
+    demoDir('20261018-020000', hours(2), [
+      demoFile('index.php', 28.4 * 1024, hours(2)),
+      demoDir('wp-content', hours(26), [
+        demoDir('themes', hours(26), [
+          demoDir('twentytwentyfour', hours(50), [
+            demoFile('style.css', 92.6 * 1024, hours(50)),
+            demoFile('functions.php', 41.8 * 1024, hours(50)),
+          ]),
+          demoFile('flavor.zip', 8.4 * MB, hours(74)),
+        ]),
+        demoDir('plugins', hours(26), [
+          demoDir('akismet', hours(26), [demoFile('akismet.php', 208.3 * 1024, hours(26))]),
+        ]),
+        demoFile('index.php', 128, hours(26)),
+      ]),
+      demoFile('db.sql.gz', 45.2 * MB, hours(2)),
+    ]),
+    // 硬链增量：前一日快照只含变化部分，体积明显更小
+    demoDir('20261017-020000', hours(26), [
+      demoFile('index.php', 4.2 * 1024, hours(26)),
+      demoFile('db.sql.gz', 2.1 * MB, hours(26)),
+    ]),
+  ]),
+  demoDir('营销落地页', hours(28), [
+    demoDir('20261016-030000', hours(28), [
+      demoFile('index.html', 18.6 * 1024, hours(28)),
+      demoDir('assets', hours(28), [
+        demoFile('app.css', 34.2 * 1024, hours(28)),
+        demoFile('app.js', 126.7 * 1024, hours(28)),
+      ]),
+    ]),
+  ]),
+]
+
+// 其余存储的 2 层通用小树：<base>/<站点>/<tar.gz|sql.gz>（文件名呼应备份记录演示数据）
+const buildGenericTree = () => [
+  demoDir(sanitizeSegment('电商平台'), hours(15), [
+    demoFile('shop_20261013_040000.tar.gz', 5.1 * GB, hours(15)),
+    demoFile('shop_mysql_20261013_040001.sql.gz', 620 * MB, hours(15)),
+  ]),
+  demoDir(sanitizeSegment('客户门户'), hours(9), [
+    demoFile('portal_20261013_030002.tar.gz', 1.8 * GB, hours(9)),
+    demoFile('portal_mysql_20261013_030003.sql.gz', 240 * MB, hours(9)),
+  ]),
+  demoFile('bc-system-20261013-030000.tar.gz', 18.6 * MB, hours(13)),
+]
+
+// GET /api/storages/{id}/files 演示处理器（契约见 .workbuddy/vps-browse-spec.md §1.5）
+function browseStorageFiles(storageId, path, websiteId) {
+  const storage = findById(db.storages, storageId)
+  if (!storage) return { ok: false, message: '存储不存在' }
+
+  // agent_local 加密：中心不持密钥，明确拒绝（与后端 StorageFileController 同文案）
+  const enc = storage.config?.encryption
+  if (enc?.enabled && enc.key_mode === 'agent_local') {
+    return { ok: false, message: '该存储启用了「Agent 本地密钥」加密，中心无法解密文件名，暂不支持浏览' }
+  }
+
+  const base = String(storage.base_path || '').replace(/\/+$/, '')
+
+  // 初始路径：website_id 命中该存储的增量目标时直达站点快照根，否则回落 base_path
+  let p = String(path || '')
+  if (!p && websiteId) {
+    const w = findById(db.websites, websiteId)
+    if (w && Number(w.incremental_storage_id) === Number(storage.id)) {
+      p = base ? `${base}/${sanitizeSegment(w.name)}` : sanitizeSegment(w.name)
+    }
+  }
+  if (!p) p = base
+
+  // 选演示树：storage 5 走硬链快照主演示，其余走通用小树；两棵树的节点名均为裸名，索引时统一拼 base 前缀
+  const tree = storage.id === 5 ? DEMO_TREE_S5 : buildGenericTree()
+  const rootStat = calcRecursive(tree)
+  const index = indexTree(tree, base, {})
+  // 补上根目录节点自身（base_path 这一层，含整树递归统计）
+  index[base] = { isDir: true, children: tree, recursiveSize: rootStat.size, recursiveCount: rootStat.count }
+  const node = index[p]
+  if (!node || !node.isDir) {
+    return { ok: false, message: `目录不存在或不可浏览：${p || '/'}` }
+  }
+
+  // 目录优先（稳定排序保持演示顺序：新快照在前）；条目按服务端口径渲染
+  const entries = node.children
+    .slice()
+    .sort((a, b) => (b.isDir ? 1 : 0) - (a.isDir ? 1 : 0))
+    .map((n) => ({
+      name: n.name,
+      path: `${p}/${n.name}`,
+      is_dir: n.isDir,
+      size: n.isDir ? null : n.size,
+      modified: n.mtime,
+    }))
+
+  return {
+    ok: true,
+    storage: {
+      id: storage.id,
+      name: storage.name,
+      type: storage.type,
+      // center 密钥模式才算前端可见的「已解密浏览」；agent_local 已在上面拒绝
+      encrypted: !!(enc?.enabled && enc.key_mode === 'center'),
+      base_path: storage.base_path,
+    },
+    path: p,
+    parent: browseParent(p),
+    entries,
+    truncated: false,
+    dir_count: entries.filter((e) => e.is_dir).length,
+    file_count: entries.filter((e) => !e.is_dir).length,
+    recursive_size: node.recursiveSize ?? null,
+    recursive_count: node.recursiveCount ?? null,
+  }
+}
+
+/* ============================================================
    路由表：[method, 路径正则, handler(match, params, body)]
    返回体 shape 逐个对齐 src/api/*.js 的解包方式（r.data / r.data.data）
    ============================================================ */
@@ -936,6 +1107,7 @@ const routes = [
     s.last_tested_at = new Date().toISOString()
     return { ok: true, message: '连接成功（演示环境不会发起真实连接）' }
   }],
+  ['get', /^\/storages\/(\d+)\/files$/, (m, p) => browseStorageFiles(Number(m[1]), p?.path || '', p?.website_id ? Number(p.website_id) : null)],
 
   /* ---------- 备份记录 ---------- */
   ['get', /^\/backup-logs$/, (m, p) => paginate(db.logs.filter((l) => (
