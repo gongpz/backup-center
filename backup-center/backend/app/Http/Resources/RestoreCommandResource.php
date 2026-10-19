@@ -27,9 +27,11 @@ class RestoreCommandResource extends JsonResource
             'filename' => $params['filename'] ?? basename((string) ($params['remote_path'] ?? '')),
             'size' => $this->whenLoaded('restoreLog', fn () => $this->restoreLog->size),
             'status' => $this->status,
-            // 耗时 = completed_at - dispatched_at；排队中/执行中未完结时无耗时
+            // 耗时 = completed_at - dispatched_at；排队中/执行中未完结时无耗时。
+            // 传 $absolute=true：Carbon 3 默认有符号，completed 早于 dispatched（时钟偏差/
+            // 补偿写入）时会算出负耗时，取绝对值兜底。
             'duration_seconds' => $this->dispatched_at && $this->completed_at
-                ? $this->completed_at->diffInSeconds($this->dispatched_at)
+                ? $this->completed_at->diffInSeconds($this->dispatched_at, true)
                 : null,
             'created_at' => $this->created_at?->toIso8601String(),
             'completed_at' => $this->completed_at?->toIso8601String(),

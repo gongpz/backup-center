@@ -123,7 +123,11 @@ class RestoreController extends Controller
                 $prev = $suites[$n - 1];
                 $prevFiles = $prev['files'];
                 $earliestAt = $prevFiles[count($prevFiles) - 1]['backup_at'];
-                if ($earliestAt && Carbon::parse($earliestAt)->diffInSeconds($at) <= $windowSeconds) {
+                // 注意：Carbon 3 的 diffInSeconds() 默认返回有符号值（参数更早时为负），
+                // 负数 <= 窗口恒真 → 同网站所有文件会被无上限合并成一个大套件，
+                // 恢复页出现「19日卡片混入 18/17 日记录」。必须传第二个参数 $absolute=true
+                // 取绝对值（与 app/Models/Server.php 的在线判断保持一致）。
+                if ($earliestAt && Carbon::parse($earliestAt)->diffInSeconds($at, true) <= $windowSeconds) {
                     $prev['files'][] = $file;
                     $suites[$n - 1] = $prev;
                     $merged = true;
