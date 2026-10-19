@@ -136,19 +136,22 @@ const fmtDuration = (sec) => {
 }
 
 // 文件类型（与后端 RestoreController::fileType 同规则）：
-// .sql / .sql.gz / .sql.zip → 数据库；.tar.gz / .zip → 网站目录；其他 → 备份文件。
+// -snap-<stamp> → 增量快照（v1.2.17）；.sql / .sql.gz / .sql.zip → 数据库；
+// .tar.gz / .zip → 网站目录；其他 → 备份文件。
 // 宝塔 external 文件名无 -web-/-db- 标记（hi.imask.cc_20261018_044137.tar.gz），
 // 旧规则把它们全判成 file，chip 展示与套件配对都失真，故按扩展名判定。
 const fileTypeOf = (filename) => {
   const n = String(filename || '')
+  if (/-snap-\d{8}-\d{6}$/.test(n)) return 'snapshot'
   if (/\.sql(\.|$)/i.test(n)) return 'database'
   if (/\.(tar\.gz|zip)$/i.test(n)) return 'website'
   return 'file'
 }
 const fileTypeMeta = {
-  website:  { text: '网站目录', cls: 'chip-blue' },
-  database: { text: '数据库',   cls: 'chip-purple' },
-  file:     { text: '备份文件', cls: 'chip-neutral' },
+  website:   { text: '网站目录', cls: 'chip-blue' },
+  database:  { text: '数据库',   cls: 'chip-purple' },
+  snapshot:  { text: '增量快照', cls: 'chip-snap' },
+  file:      { text: '备份文件', cls: 'chip-neutral' },
 }
 
 /* ---------- 备份套件分组：任务编码优先，无编码走类型配对 + 5 分钟窗口 ----------
@@ -601,7 +604,7 @@ const total = computed(() => meta.total)
 .badge.fail { background: var(--bc-danger-bg); color: var(--bc-danger); border: 1px solid var(--bc-danger-border); }
 .badge.run  { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 
-/* 类型 chip（与恢复页语义一致：蓝=网站目录 / 紫=数据库 / 中性=其他备份文件） */
+/* 类型 chip（与恢复页语义一致：蓝=网站目录 / 紫=数据库 / 绿=增量快照 / 中性=其他备份文件） */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -616,6 +619,7 @@ const total = computed(() => meta.total)
 }
 .chip-blue    { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 .chip-purple  { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
+.chip-snap    { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
 .chip-neutral { background: var(--bc-bg-inset); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
 
 /* ---------- 详情弹窗 ---------- */

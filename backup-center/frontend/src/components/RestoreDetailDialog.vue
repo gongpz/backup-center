@@ -23,6 +23,8 @@ const isAdvanced = computed(() => props.website?.restore_mode === 'advanced')
 const files = computed(() => props.suite?.files || [])
 const restorableCount = computed(() => files.value.filter((f) => f.restorable).length)
 const totalSize = computed(() => props.suite?.total_size || files.value.reduce((s, f) => s + (f.size || 0), 0))
+// 套件含增量快照（v1.2.17）：快照是远端目录，恢复行为与普通文件不同（下载到 /tmp 中转）
+const hasSnapshot = computed(() => files.value.some((f) => f.type === 'snapshot'))
 
 // 勾选集合：打开 / 切换恢复项时**默认不勾选任何文件**——
 // 用户反馈「点开就全选再手动取消」体验差，改为主动勾选 + 全选/全不选快捷操作
@@ -116,7 +118,7 @@ const fileTitle = (f) => {
 
       <!-- 高级模式警示条（复用 Restore.vue .restore-warn-bar 视觉语法） -->
       <div v-if="isAdvanced" class="detail-warn">
-        高级模式：恢复将自动解压覆盖网站根目录并重建导入数据库（覆盖线上站点）
+        高级模式：恢复将自动解压覆盖网站根目录并重建导入数据库（覆盖线上站点）<span v-if="hasSnapshot">（含增量快照：将下载整个快照目录后自动恢复网站与数据库）</span>
       </div>
 
       <!-- 文件列表：勾选本次要恢复的文件 -->
@@ -133,8 +135,8 @@ const fileTitle = (f) => {
         >
           <span class="file-row">
             <span class="file-row-main">
-              <span class="chip" :class="f.type === 'database' ? 'chip-purple' : 'chip-blue'">
-                {{ f.label || (f.type === 'database' ? '数据库' : '网站目录') }}
+              <span class="chip" :class="f.type === 'database' ? 'chip-purple' : (f.type === 'snapshot' ? 'chip-snap' : 'chip-blue')">
+                {{ f.label || (f.type === 'database' ? '数据库' : f.type === 'snapshot' ? '增量快照' : '网站目录') }}
               </span>
               <span class="file-name mono" :title="f.full_path">{{ f.filename }}</span>
               <span class="file-size">{{ fmtSize(f.size) }}</span>
@@ -153,8 +155,10 @@ const fileTitle = (f) => {
         </el-checkbox>
       </div>
 
-      <!-- lite 模式底部说明（advanced 的警示已在顶部展示） -->
-      <p v-if="!isAdvanced" class="detail-note">文件将下载回服务器原备份目录</p>
+      <!-- lite 模式底部说明（advanced 的警示已在顶部展示；含快照时快照目录走 /tmp 中转） -->
+      <p v-if="!isAdvanced" class="detail-note">
+        {{ hasSnapshot ? '增量快照目录将下载到服务器临时目录（/tmp），其余文件下载回原备份目录' : '文件将下载回服务器原备份目录' }}
+      </p>
     </div>
 
     <template #footer>
@@ -194,6 +198,7 @@ const fileTitle = (f) => {
 }
 .chip-blue    { background: var(--bc-primary-light); color: var(--bc-primary); border: 1px solid var(--bc-primary-100); }
 .chip-purple  { background: var(--bc-info-bg); color: var(--bc-info); border: 1px solid var(--bc-info-border); }
+.chip-snap    { background: var(--bc-success-bg); color: var(--bc-success); border: 1px solid var(--bc-success-border); }
 .chip-neutral { background: var(--bc-bg-inset); color: var(--bc-text-secondary); border: 1px solid var(--bc-border-light); }
 
 .badge {

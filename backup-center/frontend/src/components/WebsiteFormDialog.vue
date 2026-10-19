@@ -43,6 +43,10 @@ const form = reactive({
 
   // 备份来源（P1）：external=沿用服务器上的第三方/外部压缩产物；self=由本系统自主压缩（P3 支持）
   backup_source: 'external',
+  // 备份方式（v1.2.17）：full=全量（现行为）；incremental=rsync 硬链快照（仅 backup_source=self 可选）
+  backup_mode: 'full',
+  // 增量备份目标存储（单值；必须是 SFTP + SSH 私钥 + 未加密存储，由 incrementalStorageOptions 约束）
+  incremental_storage_id: null,
   // 恢复模式：lite=拉回备份目录，手动恢复；advanced=系统全自动恢复线上（自动预备份+解压覆盖+导库，P4 已落地）
   restore_mode: 'lite',
 
@@ -98,8 +102,24 @@ const mandatoryStorages = computed(() =>
 const optionalStorages = computed(() =>
   storageOptions.value.filter((s) => ! s.is_mandatory),
 )
+// 增量备份目标候选（v1.2.17）：对象存储无增量语义，仅 SFTP + SSH 私钥 + 未加密；
+// private_key_set / encryption_enabled 为后端脱敏布尔字段（StorageResource）
+const incrementalStorageOptions = computed(() =>
+  storageOptions.value.filter((s) => s.type === 'sftp' && s.private_key_set && ! s.encryption_enabled),
+)
 
 onMounted(() => { loadServers(); loadStorages() })
+
+// 增量备份仅 self 来源可用（外部压缩产物无法 rsync 镜像）：切回 external 自动复位，避免残留无效配置
+watch(
+  () => form.backup_source,
+  (v) => {
+    if (v !== 'self') {
+      form.backup_mode = 'full'
+      form.incremental_storage_id = null
+    }
+  },
+)
 
 watch(
   () => props.modelValue,
@@ -118,6 +138,8 @@ watch(
         sync_mode: 'auto',
         schedule_time: '03:00',
         backup_source: 'external',
+        backup_mode: 'full',
+        incremental_storage_id: null,
         restore_mode: 'lite',
         db_type: 'mysql',
         db_host: '127.0.0.1',
@@ -160,6 +182,8 @@ watch(
           sync_mode: props.website.sync_mode || 'auto',
           schedule_time: hm,
           backup_source: props.website.backup_source || 'external',
+          backup_mode: props.website.backup_mode || 'full',
+          incremental_storage_id: props.website.incremental_storage_id || null,
           restore_mode: props.website.restore_mode || 'lite',
           db_type: props.website.db_type || 'mysql',
           db_host: props.website.db_host || '127.0.0.1',
@@ -195,6 +219,12 @@ const onSubmit = () => {
       return
     }
 
+    // 增量备份必须选定目标存储（后端同规则 422，前端先拦一道）
+    if (form.backup_mode === 'incremental' && !form.incremental_storage_id) {
+      ElMessage.warning('请选择增量备份目标存储')
+      return
+    }
+
     saving.value = true
     try {
       const payload = {
@@ -209,6 +239,9 @@ const onSubmit = () => {
         // schedule 存 HH:MM，仅在 scheduled 模式下有意义
         schedule: form.sync_mode === 'scheduled' ? form.schedule_time : null,
         backup_source: form.backup_source,
+        // 备份方式（v1.2.17）：非 incremental 时不下发目标存储（后端对 full 忽略该字段）
+        backup_mode: form.backup_mode,
+        incremental_storage_id: form.backup_mode === 'incremental' ? form.incremental_storage_id : null,
         restore_mode: form.restore_mode,
         // 数据库连接（自主压缩 self 用；空密码=不改）
         db_type: form.db_type,
@@ -390,6 +423,52 @@ const onSubmit = () => {
         </div>
       </el-form-item>
 
+      <!-- 备份方式（v1.2.17）：仅 backup_source=self 可选增量（rsync --link-dest 硬链快照到 VPS） -->
+      <el-form-item v-if="form.backup_source === 'self'" label="备份方式" prop="backup_mode">
+        <div class="mode-row">
+          <el-radio-group v-model="form.backup_mode">
+            <el-radio value="full">全量备份</el-radio>
+            <el-radio value="incremental">
+              增量备份
+              <span class="mode-tag mode-tag-ready">已支持</span>
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <div class="mode-detail">
+          <template v-if="form.backup_mode === 'incremental'">
+            <el-select
+              v-model="form.incremental_storage_id"
+              placeholder="选择增量备份目标存储（VPS）"
+              filterable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="s in incrementalStorageOptions"
+                :key="s.id"
+                :value="s.id"
+                :label="s.name"
+              >
+                <div style="display: flex; justify-content: space-between; gap: 10px">
+                  <span>{{ s.name }}</span>
+                  <span style="font-size: 12px; color: var(--bc-text-secondary)">{{ s.type }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <p v-if="incrementalStorageOptions.length === 0" class="mode-hint inc-empty-hint">
+              请先创建 SFTP 类型、配置 SSH 私钥、未开启加密的存储（VPS）
+            </p>
+          </template>
+          <p class="mode-hint">
+            <template v-if="form.backup_mode === 'incremental'">
+              rsync 硬链快照到 VPS，仅传输变化部分；数据库仍每次全量导出并随快照存档。需要目标存储为 SFTP + SSH 私钥，且服务器已安装 rsync/ssh。
+            </template>
+            <template v-else>
+              每次完整打包网站目录并导出数据库后上传（现有行为）。
+            </template>
+          </p>
+        </div>
+      </el-form-item>
+
       <!-- 数据库配置（自主压缩 self 用） -->
       <el-form-item label="数据库配置" prop="db_type" v-if="form.backup_source === 'self'">
         <div class="db-cfg">
@@ -552,9 +631,16 @@ const onSubmit = () => {
 .mode-detail {
   margin-top: 8px;
 }
+.mode-detail .el-select {
+  margin-bottom: 8px;
+}
 .mode-hint {
   font-size: 12px;
   color: var(--bc-text-secondary);
+}
+/* 增量目标存储为空时的引导文案：用警示色引起注意 */
+.inc-empty-hint {
+  color: var(--bc-warning);
 }
 
 .db-cfg { width: 100%; display: flex; flex-direction: column; gap: 10px; }

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box, Document } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Edit, Delete, Sort, Key, Box, Document, Files } from '@element-plus/icons-vue'
 import { websitesApi } from '@/api/websites'
 import { commandsApi } from '@/api/commands'
 import { serversApi } from '@/api/servers'
@@ -150,6 +150,21 @@ const selfBackupNow = async (row) => {
     const s = new Set(selfBackingIds.value)
     s.delete(row.id)
     selfBackingIds.value = s
+  }
+}
+
+// 立即增量备份（v1.2.17）：仅 self + incremental 网站显示；镜像 selfBackupNow
+const incrementingIds = ref(new Set())
+const incrementalBackupNow = async (row) => {
+  if (incrementingIds.value.has(row.id)) return
+  incrementingIds.value = new Set([...incrementingIds.value, row.id])
+  try {
+    const res = await websitesApi.incrementalBackup(row.id)
+    ElMessage.success(res.message || '已下发增量备份指令，最长 60 秒内 Agent 会执行')
+  } catch (_) { /* interceptor 弹错 */ } finally {
+    const s = new Set(incrementingIds.value)
+    s.delete(row.id)
+    incrementingIds.value = s
   }
 }
 
@@ -356,7 +371,7 @@ const total = computed(() => meta.total)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="450" fixed="right">
+        <el-table-column label="操作" width="520" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link :icon="Document" @click="openDetail(row)">详情</el-button>
@@ -376,6 +391,14 @@ const total = computed(() => meta.total)
                 :loading="selfBackingIds.has(row.id)"
                 @click="selfBackupNow(row)"
               >自主备份</el-button>
+              <el-button
+                v-if="row.backup_source === 'self' && row.backup_mode === 'incremental'"
+                link
+                :icon="Files"
+                type="primary"
+                :loading="incrementingIds.has(row.id)"
+                @click="incrementalBackupNow(row)"
+              >增量备份</el-button>
               <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>

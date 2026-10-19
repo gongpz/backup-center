@@ -114,7 +114,13 @@ const safeStorageConfig = (config) => {
   if (enc.password) enc.password = ENC_PASSWORD_MASK
   return { ...config, encryption: enc }
 }
-const safeStorage = (s) => (s ? { ...s, config: safeStorageConfig(s.config) } : s)
+const safeStorage = (s) => (s ? {
+  ...s,
+  // 对齐 StorageResource（v1.2.17）：增量备份目标筛选用的布尔脱敏字段，不泄露任何密钥内容
+  private_key_set: !!s.config?.private_key,
+  encryption_enabled: !!s.config?.encryption?.enabled,
+  config: safeStorageConfig(s.config),
+} : s)
 const resolveEncryption = (enc, existing) => {
   const next = { ...ENC_DEFAULTS, ...(enc || {}) }
   if (!next.password || next.password === ENC_PASSWORD_MASK) {
@@ -127,8 +133,8 @@ const db = {
   // log 序号必须大于静态数据最大 id（15843）：P2 起静态记录直接写死 15823–15843，
   // 早期 seq=15833 会让预置自主备份日志与静态记录撞号（db.logs 出现重复 id，
   // 备份记录表 row-key="id" 行状态串扰、findById 解析到错误条目）。
-  seq: { server: 7, website: 9, storage: 5, log: 15844, pool: 2, cmd: 100 },
-  latestAgentVersion: '0.14.5',
+  seq: { server: 7, website: 9, storage: 6, log: 15844, pool: 2, cmd: 100 },
+  latestAgentVersion: '0.15.0',
 
   user: { id: 1, name: '张管理员', username: 'admin', email: 'admin@example.com', role: 'admin' },
 
@@ -143,14 +149,14 @@ const db = {
   ],
 
   websites: [
-    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站（自主压缩演示）', storage_ids: [1, 2], backup_source: 'self', restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'main_site', db_user: 'root', db_password_set: true },
-    { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', restore_mode: 'advanced', bind_token: randToken(), web_root: '/var/www/eshop', root_bound_at: hours(48), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'shop_main', db_user: 'root', db_password_set: true },
-    { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 7, name: 'API 网关', domain: 'api.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: 'Kong 配置', path: '/etc/kong', pattern: '' }], recent_backups: [{ log: mkLog(15826, 'API 网关', 'jp-edge-03', 260 * MB, 'success', 52) }], schedule: '0 6 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
-    { id: 8, name: '旧版官网', domain: 'old.example.com', server_id: 4, server: { name: 'us-backup-04', connect_type: 'agent' }, backup_paths: [{ label: '旧站目录', path: '/var/www/old', pattern: '' }], recent_backups: [{ log: mkLog(15825, '旧版官网', 'us-backup-04', 1.2 * GB, 'success', 320) }], schedule: '0 2 * * 0', sync_mode: 'auto', retention_days: 7, status: 'disabled', remark: '已下线，保留归档', storage_ids: [1], backup_source: 'external', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 1, name: '官网主站', domain: 'www.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '站点根目录', path: '/var/www/html', pattern: '' }, { label: 'Nginx 配置', path: '/etc/nginx', pattern: '' }], recent_backups: [{ log: mkLog(15832, '官网主站', 'hk-prod-01', 2.4 * GB, 'success', 4) }], schedule: '0 2 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '对外主站（自主压缩演示）', storage_ids: [1, 2], backup_source: 'self', backup_mode: 'incremental', incremental_storage_id: 5, restore_mode: 'lite', bind_token: randToken(), web_root: '/var/www/html', root_bound_at: hours(72), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'main_site', db_user: 'root', db_password_set: true },
+    { id: 2, name: '客户门户', domain: 'portal.example.com', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: '备份目录1', path: '/srv/portal', pattern: '' }], recent_backups: [{ log: mkLog(15831, '客户门户', 'hk-prod-01', 1.8 * GB, 'success', 9) }], schedule: '0 3 * * *', sync_mode: 'auto', retention_days: 60, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: '/srv/portal', root_bound_at: hours(96), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 3, name: '电商平台', domain: 'shop.example.com', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '商品数据', path: '/data/shop', pattern: '' }, { label: 'MySQL 转储', path: '/data/mysql', pattern: '*.sql.gz' }], recent_backups: [{ log: mkLog(15830, '电商平台', 'sg-db-02', 5.1 * GB, 'failed', 15) }], schedule: '0 */6 * * *', sync_mode: 'scheduled', retention_days: 90, status: 'enabled', remark: '核心业务', storage_ids: [1, 2, 3], backup_source: 'external', backup_mode: 'full', restore_mode: 'advanced', bind_token: randToken(), web_root: '/var/www/eshop', root_bound_at: hours(48), db_type: 'mysql', db_host: '127.0.0.1', db_port: 3306, db_name: 'shop_main', db_user: 'root', db_password_set: true },
+    { id: 4, name: '数据中台', domain: 'data.example.internal', server_id: 2, server: { name: 'sg-db-02', connect_type: 'agent' }, backup_paths: [{ label: '数仓', path: '/data/warehouse', pattern: '' }], recent_backups: [{ log: mkLog(15829, '数据中台', 'sg-db-02', 3.6 * GB, 'success', 22) }], schedule: '30 1 * * 1', sync_mode: 'auto', retention_days: 180, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: '/data/warehouse', root_bound_at: hours(120), db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 5, name: '营销落地页', domain: 'lp.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: '页面静态资源', path: '/usr/share/nginx/lp', pattern: '' }], recent_backups: [{ log: mkLog(15828, '营销落地页', 'jp-edge-03', 420 * MB, 'running', 26) }], schedule: '0 4 * * *', sync_mode: 'auto', retention_days: 14, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 6, name: '内部 OA', domain: 'oa.example.internal', server_id: 1, server: { name: 'hk-prod-01', connect_type: 'agent' }, backup_paths: [{ label: 'OA 程序目录', path: '/opt/oa', pattern: '' }], recent_backups: [{ log: mkLog(15827, '内部 OA', 'hk-prod-01', 900 * MB, 'success', 38) }], schedule: '0 5 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [1], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 7, name: 'API 网关', domain: 'api.example.com', server_id: 3, server: { name: 'jp-edge-03', connect_type: 'ssh' }, backup_paths: [{ label: 'Kong 配置', path: '/etc/kong', pattern: '' }], recent_backups: [{ log: mkLog(15826, 'API 网关', 'jp-edge-03', 260 * MB, 'success', 52) }], schedule: '0 6 * * *', sync_mode: 'auto', retention_days: 30, status: 'enabled', remark: '', storage_ids: [2], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
+    { id: 8, name: '旧版官网', domain: 'old.example.com', server_id: 4, server: { name: 'us-backup-04', connect_type: 'agent' }, backup_paths: [{ label: '旧站目录', path: '/var/www/old', pattern: '' }], recent_backups: [{ log: mkLog(15825, '旧版官网', 'us-backup-04', 1.2 * GB, 'success', 320) }], schedule: '0 2 * * 0', sync_mode: 'auto', retention_days: 7, status: 'disabled', remark: '已下线，保留归档', storage_ids: [1], backup_source: 'external', backup_mode: 'full', restore_mode: 'lite', bind_token: randToken(), web_root: null, root_bound_at: null, db_type: null, db_host: null, db_port: null, db_name: null, db_user: null, db_password_set: false },
   ],
 
   storages: [
@@ -158,6 +164,8 @@ const db = {
     { id: 2, name: 'Backblaze B2', type: 's3', status: 'enabled', is_mandatory: false, quota_bytes: 1000 * GB, used_bytes: 286 * GB, websites_count: 18, upload_count: 7412, base_path: 'bc-backups', last_test_status: 'ok', last_tested_at: mins(120), access_url: '', remark: '异地对象存储', config: { endpoint: 'https://s3.us-west-000.backblazeb2.com', region: 'us-west-000', bucket: 'bc-backups', access_key_id: '000b2c3d4e5f6000', secret_access_key: '', encryption: { enabled: true, key_mode: 'center', password: 'b2-demo-enc-pass', filename_encryption: 'standard', directory_name_encryption: true } } },
     { id: 3, name: 'Nextcloud 异地', type: 'webdav', status: 'enabled', is_mandatory: false, quota_bytes: 300 * GB, used_bytes: 264 * GB, websites_count: 9, upload_count: 3180, base_path: '/remote.php/dav', last_test_status: 'failed', last_tested_at: mins(280), access_url: 'https://cloud.example.com', remark: '最近连接异常', config: { url: 'https://cloud.example.com/remote.php/dav', vendor: 'nextcloud', user: 'backup', password: '' } },
     { id: 4, name: '本地 NAS', type: 'ftp', status: 'disabled', is_mandatory: false, quota_bytes: 0, used_bytes: 96 * GB, websites_count: 0, upload_count: 640, base_path: '/volume1/backup', last_test_status: 'ok', last_tested_at: mins(1440), access_url: '', remark: '机房内网', config: { host: '10.0.0.9', port: 21, user: 'backup', password: '' } },
+    // v1.2.17 增量备份演示目标：SFTP + SSH 私钥 + 未加密（满足 incremental_storage_id 筛选条件）
+    { id: 5, name: 'VPS 增量存储', type: 'sftp', status: 'enabled', is_mandatory: false, quota_bytes: 200 * GB, used_bytes: 96 * GB, websites_count: 1, upload_count: 1240, base_path: '/backup', last_test_status: 'ok', last_tested_at: mins(50), access_url: '', remark: 'rsync 硬链快照目标（SSH 私钥）', config: { host: 'vps.example.com', port: 22, user: 'backup', private_key: 'demo-private-key-placeholder', encryption: { enabled: false, key_mode: 'center', password: '', filename_encryption: 'standard', directory_name_encryption: true } } },
   ],
 
   logs: [],
@@ -318,6 +326,51 @@ db.logs = [
   }
 })()
 
+// 演示用（v1.2.17）：预置一条增量快照日志（batch_code + 远端目录 full_path + bc_<sid>: upload），
+// 点亮备份记录页「增量快照」chip 与恢复页的快照目录恢复流程
+;(() => {
+  const w = findById(db.websites, 1)
+  const incStorage = findById(db.storages, 5)
+  if (w && w.backup_mode === 'incremental' && incStorage) {
+    const id = nextId('log')
+    const at = hours(3)
+    const safe = String(w.name || 'site').replace(/[^A-Za-z0-9._-]/g, '_')
+    const snapDir = `${incStorage.base_path}/${safe}/20261019-143000`
+    db.logs.unshift({
+      ...mkLog(id, w.name, w.server?.name, 1.6 * GB, 'success', 180, 60),
+      id,
+      batch_code: 10186,
+      website: { name: w.name, domain: w.domain },
+      server: w.server,
+      website_id: w.id,
+      server_id: w.server_id,
+      filename: `${safe}-snap-20261019-143000`,
+      full_path: snapDir,
+      size: 1.6 * GB,
+      status: 'success',
+      // 增量只推目标存储（不走 website.storage_ids），succeeded 仅含增量存储
+      succeeded: [{ storage_name: incStorage.name }],
+      failed: [],
+      backup_at: at,
+      synced_at: at,
+      created_at: at,
+      upload_status: 'uploaded',
+      uploads: [{
+        id: id * 10 + 1,
+        storage_name: incStorage.name,
+        storage_type: 'sftp',
+        status: 'uploaded',
+        uploaded_bytes: 1.6 * GB,
+        duration_seconds: 55,
+        attempts: 1,
+        finished_at: at,
+        error_message: null,
+        remote_path: `bc_${incStorage.id}:${snapDir}`,
+      }],
+    })
+  }
+})()
+
 /* ============================================================
    通用工具
    ============================================================ */
@@ -371,10 +424,17 @@ const latestUpload = (log) => (log.uploads || [])
   .filter((u) => u.status === 'uploaded' && u.remote_path)
   .sort((a, b) => b.id - a.id)[0] || null
 
-const fileType = (filename) => (/\.sql(\.|$)/i.test(filename || '') ? 'database' : 'website')
+// 与后端 RestoreController::fileType 同规则：快照（-snap-<stamp>）优先于扩展名判定
+const fileType = (filename) => {
+  const n = String(filename || '')
+  if (/-snap-\d{8}-\d{6}$/.test(n)) return 'snapshot'
+  return /\.sql(\.|$)/i.test(n) ? 'database' : 'website'
+}
 
 const fileLabel = (log, website) => {
   const type = fileType(log.filename)
+  // 快照日志的 full_path 是远端目录，backup_paths 前缀匹配无意义，直接返回固定标签
+  if (type === 'snapshot') return '增量快照'
   const fallback = type === 'database' ? '数据库' : '网站目录'
   const fullPath = log.full_path || ''
   for (const bp of website.backup_paths || []) {
@@ -410,6 +470,9 @@ const buildRecentSelfBackups = (website) => {
   // 注意：勿命名 db —— 会遮蔽模块级 db 并让上面的 db.logs 访问踩 TDZ
   const dbLog = pick(/^.*-db-.*\.sql\.gz$/)
   if (dbLog) out.push({ label: '数据库', path: '（数据库）', log: shape(dbLog) })
+  // 增量快照（v1.2.17）：与后端 recentSelfBackups 第三项对齐，label='增量快照'，path=远端快照目录
+  const snap = pick(/^.*-snap-\d{8}-\d{6}$/)
+  if (snap) out.push({ label: '增量快照', path: snap.full_path || '（远端快照目录）', log: shape(snap) })
   return out
 }
 
@@ -560,7 +623,7 @@ const routes = [
   ['get', /^\/agent-latest-version$/, () => ({ latest_version: db.latestAgentVersion, version: db.latestAgentVersion })],
   // 系统版本（对齐后端 VersionController：真实部署取构建时写入的 backend/VERSION，
   // 演示模式无该文件，直接返回当前发版号；不覆盖的话兜底返回 {data:[]}，设置页/页脚显示「—」）
-  ['get', /^\/version$/, () => ({ version: 'v1.2.16', commit_short: '7ba17b0', channel: 'demo' })],
+  ['get', /^\/version$/, () => ({ version: 'v1.2.17', commit_short: '7ba17b0', channel: 'demo' })],
   ['get', /^\/servers$/, (m, p) => paginate(db.servers.filter((s) => (
     (!p.status || s.status === p.status)
     && (!p.connect_type || s.connect_type === p.connect_type)
@@ -661,6 +724,8 @@ const routes = [
       remark: body.remark || '',
       storage_ids: body.storage_ids || [],
       backup_source: body.backup_source || 'external',
+      backup_mode: body.backup_mode || 'full',
+      incremental_storage_id: body.incremental_storage_id || null,
       restore_mode: body.restore_mode || 'lite',
       bind_token: randToken(),
       web_root: null,
@@ -745,6 +810,70 @@ const routes = [
     addSelfLog(`${safe}-db-${ts}.sql.gz`, `${w.web_root || '/www'}/backup/${safe}-db-${ts}.sql.gz`, 320 * MB)
 
     return { message: '已下发自主备份指令，最长 60 秒后 Agent 会执行（打包网站目录 + 导出数据库并上传）', command_id: cmdId }
+  }],
+  // v1.2.17 增量备份：与后端 incrementalBackupNow 同序校验（Agent 模式 + self 来源 + incremental 模式 + 目标存储）
+  ['post', /^\/websites\/(\d+)\/incremental-backup$/, (m) => {
+    const w = findById(db.websites, m[1])
+    if (!w) return { __error: { status: 404, message: '网站不存在' } }
+    if (w.server?.connect_type !== 'agent') {
+      return { __error: { status: 422, message: '该网站所属服务器不是 Agent 模式，无法增量备份' } }
+    }
+    if (w.backup_source !== 'self') {
+      return { __error: { status: 422, message: '该网站未启用自主压缩备份（backup_source=self）' } }
+    }
+    if ((w.backup_mode || 'full') !== 'incremental') {
+      return { __error: { status: 422, message: '该网站未启用增量备份（backup_mode=incremental）' } }
+    }
+    if (!w.incremental_storage_id) {
+      return { __error: { status: 422, message: '未配置增量备份目标存储，请在编辑网站时选择' } }
+    }
+    const incStorage = findById(db.storages, w.incremental_storage_id)
+    const safe = String(w.name || 'site').replace(/[^A-Za-z0-9._-]/g, '_')
+    const ts = tsStamp()
+    const at = new Date().toISOString()
+    const cmdId = nextId('cmd')
+    // 远端快照目录：<base_path>/<safe>/<stamp>（full_path 不带 bc_ 前缀，remote_path 带 bc_<sid>: 前缀）
+    const remoteDir = `${incStorage?.base_path || '/backup'}/${safe}/${ts}`
+    const remotePrefix = `bc_${w.incremental_storage_id}:${remoteDir}`
+
+    const addIncLog = (filename, fullPath, size, remotePath) => {
+      const id = nextId('log')
+      db.logs.unshift({
+        ...mkLog(id, w.name, w.server?.name, size, 'success', 0, 30),
+        id,
+        // 增量两条日志同 batch_code（incremental_backup 指令 ID），恢复页按编码精确分组
+        batch_code: cmdId,
+        website: { name: w.name, domain: w.domain },
+        server: w.server,
+        website_id: w.id,
+        server_id: w.server_id,
+        filename,
+        full_path: fullPath,
+        size,
+        status: 'success',
+        backup_at: at,
+        synced_at: at,
+        created_at: at,
+        upload_status: 'uploaded',
+        uploads: [{
+          id: id * 10 + 1,
+          storage_name: incStorage?.name || 'VPS 增量存储',
+          storage_type: 'sftp',
+          status: 'uploaded',
+          uploaded_bytes: size,
+          duration_seconds: 40,
+          attempts: 1,
+          finished_at: at,
+          error_message: null,
+          remote_path: remotePath,
+        }],
+      })
+    }
+    // 快照日志（目录）+ 随快照存档的数据库全量导出
+    addIncLog(`${safe}-snap-${ts}`, remoteDir, 1.6 * GB, remotePrefix)
+    addIncLog(`${safe}-db-${ts}.sql.gz`, `${w.web_root || '/www'}/backup/${safe}-db-${ts}.sql.gz`, 320 * MB, `${remotePrefix}/${safe}-db-${ts}.sql.gz`)
+
+    return { message: '已下发增量备份指令，最长 60 秒后 Agent 会执行（rsync 快照 + 数据库导出并上传）', command_id: cmdId }
   }],
   ['post', /^\/system\/backup$/, () => {
     const filename = `bc-system-${new Date(NOW).toISOString().slice(0, 10)}.tar.gz`

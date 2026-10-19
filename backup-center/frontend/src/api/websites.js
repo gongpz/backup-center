@@ -25,6 +25,9 @@ export const websitesApi = {
   selfBackup(id) {
     return http.post(`/websites/${id}/self-backup`).then((r) => r.data)
   },
+  incrementalBackup(id) {
+    return http.post(`/websites/${id}/incremental-backup`).then((r) => r.data)
+  },
 }
 
 export const systemApi = {
