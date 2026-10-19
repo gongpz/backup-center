@@ -142,28 +142,42 @@ class RestoreController extends Controller
         // 每个 backup_log 取最新一条 restore 命令（含终态，用于"已恢复"徽标）
         $latestByLog = $this->latestRestoreCommandByLog($website);
 
+        // 日期分组：按**文件级 backup_at** 归属。
+        // 旧逻辑按 suite.backup_at（组内最新时间）分日期，套件中混入的更早日期文件会随组
+        // 显示在最新日期下——用户实测「10月19日」组里出现 18/17 日的备份（external 模式
+        // 下跨多天的文件被 30 分钟窗口串成一个套件）。
+        // 现在：suite 内每个文件按自身 backup_at 的日期进组；同一 suite 跨天时在多个日期组
+        // 都呈现，各组只带当天文件，统计与 restore_state 按天重算。
         $dayGroups = [];
         foreach ($suites as $suite) {
-            $files = $suite['files'];
-            $times = array_unique(array_filter(array_column($files, 'backup_at')));
-
-            $states = [];
-            foreach ($files as $f) {
-                $cmd = $latestByLog[$f['backup_log_id']] ?? null;
-                if ($cmd) {
-                    $states[] = $cmd->status;
-                }
+            $byDate = [];
+            foreach ($suite['files'] as $f) {
+                $d = $f['backup_at'] ? Carbon::parse($f['backup_at'])->format('Y-m-d') : '';
+                $byDate[$d][] = $f;
             }
+            foreach ($byDate as $date => $dayFiles) {
+                // dayFiles 保持倒序（新→旧），第一个即当天最新
+                $states = [];
+                foreach ($dayFiles as $f) {
+                    $cmd = $latestByLog[$f['backup_log_id']] ?? null;
+                    if ($cmd) {
+                        $states[] = $cmd->status;
+                    }
+                }
+                $times = array_unique(array_filter(array_column($dayFiles, 'backup_at')));
 
-            $suite['total_count'] = count($files);
-            $suite['restorable_count'] = count(array_filter($files, fn ($f) => $f['restorable']));
-            $suite['total_size'] = array_sum(array_column($files, 'size'));
-            $suite['restore_state'] = $this->aggregateRestoreState($states);
-            // match：组内 backup_at 是否完全一致（self 模式精确合并 / external 窗口合并）
-            $suite['match'] = count($times) <= 1 ? 'exact' : 'window';
-
-            $date = $suite['backup_at'] ? Carbon::parse($suite['backup_at'])->format('Y-m-d') : '';
-            $dayGroups[$date][] = $suite;
+                $dayGroups[$date][] = [
+                    'suite_id' => $suite['suite_id'],
+                    'backup_at' => $dayFiles[0]['backup_at'],
+                    // match：当天文件 backup_at 是否完全一致（self 精确合并 / external 窗口合并）
+                    'match' => count($times) <= 1 ? 'exact' : 'window',
+                    'total_count' => count($dayFiles),
+                    'restorable_count' => count(array_filter($dayFiles, fn ($f) => $f['restorable'])),
+                    'total_size' => array_sum(array_column($dayFiles, 'size')),
+                    'restore_state' => $this->aggregateRestoreState($states),
+                    'files' => $dayFiles,
+                ];
+            }
         }
 
         krsort($dayGroups);
