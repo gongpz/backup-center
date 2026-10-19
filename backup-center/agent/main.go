@@ -846,7 +846,11 @@ func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w c
 		CommandID: cmd.ID,
 		Output:    "[解压] 正在覆盖网站根目录…",
 	})
-	xc := exec.Command("tar", "-xzf", dest, "-C", parent)
+	// --unlink-first（-U）：解压每个文件前先删除已存在的同名路径。
+	// 宝塔等面板会在 web_root 留 .user.ini（软链或占位文件），tar 默认解压遇到已存在的
+	// 符号链接会报 "Cannot open: File exists" 并 exit 2——其他文件其实已逐个解压成功，
+	// 但非零退出码让整个恢复被误判为失败。-U 先 unlink 再创建，彻底消除 EEXIST。
+	xc := exec.Command("tar", "--unlink-first", "-xzf", dest, "-C", parent)
 	var xerr strings.Builder
 	xc.Stderr = &xerr
 	if err := xc.Run(); err != nil {
