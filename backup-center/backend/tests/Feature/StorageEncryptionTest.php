@@ -416,12 +416,15 @@ class StorageEncryptionTest extends TestCase
         $cmd = AgentCommand::where('type', AgentCommand::TYPE_CLEANUP_RETENTION)->firstOrFail();
         $this->assertSame($server->id, $cmd->server_id);
         $this->assertSame(AgentCommand::STATUS_PENDING, $cmd->status);
-        $this->assertSame([[
-            'log_id'      => $older->id,
-            'remote_path' => 'bc_' . $storage->id . ':demo/a.tar.gz',
-            // P5 契约：is_dir 标记（快照目录日志恒 true，普通文件 false），Agent 按此走 purge/deletefile
-            'is_dir'      => false,
-        ]], $cmd->params['files']);
+        // 逐键断言而非整数组 assertSame：MySQL 的 JSON 列会把对象键按
+        // 「长度→字节序」重排（is_dir/log_id/remote_path），SQLite 保持插入序，
+        // 整数组 === 比较会因键序在不同引擎上给出不同结果（CI MySQL 曾因此挂）。
+        $this->assertCount(1, $cmd->params['files']);
+        $entry = $cmd->params['files'][0];
+        $this->assertSame($older->id, $entry['log_id']);
+        $this->assertSame('bc_' . $storage->id . ':demo/a.tar.gz', $entry['remote_path']);
+        // P5 契约：is_dir 标记（快照目录日志恒 true，普通文件 false），Agent 按此走 purge/deletefile
+        $this->assertFalse($entry['is_dir']);
 
         // 红线：params 里只有 files[{log_id, remote_path, is_dir}]，没有任何凭据
         $this->assertSame(['files'], array_keys($cmd->params));
