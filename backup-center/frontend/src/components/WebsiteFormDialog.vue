@@ -294,6 +294,7 @@ const onSubmit = () => {
   >
     <el-form
       ref="formRef"
+      class="wf-form"
       :model="form"
       :rules="rules"
       label-width="88px"
@@ -396,10 +397,10 @@ const onSubmit = () => {
               </el-radio-group>
               <span class="mp-hint">
                 <template v-if="form.restore_mode === 'lite'">
-                  远程拉取备份文件回到服务器备份目录，由管理员手动解压、导入数据库。
+                  远程拉回备份文件到服务器备份目录，由管理员手动解压、导入数据库。
                 </template>
                 <template v-else>
-                  系统全自主恢复：自动创建恢复前备份（网站目录打包、数据库导出），随后解压覆盖线上网站根目录，并重建（先 DROP 再 CREATE）导入数据库，全程无需人工干预。
+                  全自动恢复：自动预备份（网站目录打包、数据库导出）→ 解压覆盖网站根目录 → 重建并导入数据库。
                 </template>
               </span>
             </div>
@@ -607,11 +608,19 @@ const onSubmit = () => {
 
 <style scoped>
 /* ---------- 横版两列布局 ---------- */
+/* 解除 style.css 全局 .el-dialog .el-form { max-width:520px }（为 460-620px 窄对话框设计）：
+   横版双区需要表单满宽，否则 grid 被压成 520px，右列仅剩 ~160px，三张模式卡会被挤成细条 */
+.el-dialog .wf-form.wf-form { max-width: none; margin: 0; }
 .wf-grid {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+}
+/* 窄视口兜底：dialog 被全局 max-width:calc(100vw-48px) 压窄后，双列会重新出现右列挤压，
+   低于断点改为单列堆叠（模式卡三张仍横排，只是移到基本信息下方） */
+@media (max-width: 920px) {
+  .wf-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .wf-col { min-width: 0; }
 .wf-col-title {

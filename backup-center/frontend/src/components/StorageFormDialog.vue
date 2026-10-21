@@ -198,154 +198,177 @@ const onSubmit = () => {
   <el-dialog
     :model-value="modelValue"
     :title="title"
-    width="620px"
+    width="900px"
     :close-on-click-modal="false"
     @update:model-value="(v) => emit('update:modelValue', v)"
   >
     <el-form
       ref="formRef"
+      class="sf-form"
       :model="form"
       :rules="rules"
       label-width="112px"
       label-position="right"
       require-asterisk-position="left"
     >
-      <el-form-item label="名称" prop="name">
-        <el-input v-model="form.name" placeholder="例如：HostBrr Storage Box" />
-      </el-form-item>
+      <div class="sf-grid">
+        <!-- 左列：基本信息 -->
+        <div class="sf-col">
+          <div class="sf-col-title">基本信息</div>
 
-      <el-form-item label="类型" prop="type">
-        <el-radio-group v-model="form.type" :disabled="isEdit">
-          <el-radio v-for="t in storageTypes" :key="t.value" :value="t.value">{{ t.label }}</el-radio>
-        </el-radio-group>
-      </el-form-item>
+          <el-form-item label="名称" prop="name">
+            <el-input v-model="form.name" placeholder="例如：HostBrr Storage Box" />
+          </el-form-item>
 
-      <!-- 动态字段 -->
-      <el-form-item
-        v-for="f in currentFields"
-        :key="f.key"
-        :label="f.label"
-        :prop="`config.${f.key}`"
-      >
-        <el-input
-          v-if="f.type === 'text' || f.type === 'password'"
-          v-model="form.config[f.key]"
-          :type="f.type === 'password' ? 'password' : 'text'"
-          :placeholder="f.placeholder"
-          :show-password="f.type === 'password'"
-        />
-        <el-input-number
-          v-else-if="f.type === 'number'"
-          v-model="form.config[f.key]"
-          :min="1"
-          :max="65535"
-          style="width: 160px"
-        />
-        <el-input
-          v-else-if="f.type === 'textarea'"
-          v-model="form.config[f.key]"
-          type="textarea"
-          :rows="4"
-          :placeholder="f.placeholder"
-        />
-        <el-select v-else-if="f.type === 'select'" v-model="form.config[f.key]" style="width: 100%">
-          <el-option v-for="o in f.options" :key="String(o.value)" :value="o.value" :label="o.label" />
-        </el-select>
-      </el-form-item>
+          <el-form-item label="类型" prop="type">
+            <el-radio-group v-model="form.type" :disabled="isEdit">
+              <el-radio v-for="t in storageTypes" :key="t.value" :value="t.value">{{ t.label }}</el-radio>
+            </el-radio-group>
+          </el-form-item>
 
-      <!-- 备份加密（所有类型通用，rclone crypt 包裹层） -->
-      <el-form-item label="备份加密">
-        <el-switch v-model="form.encryption.enabled" />
-        <span class="hint">开启后备份文件以加密形式上传至第三方存储（rclone crypt），云端仅存密文；恢复自动解密，不影响现有流程</span>
-      </el-form-item>
+          <el-form-item label="目标路径" prop="base_path">
+            <el-input v-model="form.base_path" placeholder="备份文件的目标目录，可选（例如 /backups）" />
+          </el-form-item>
 
-      <template v-if="form.encryption.enabled">
-        <el-form-item label="密钥模式">
-          <!-- popper-class + style.css 全局规则：EP 下拉项默认 height:34px/overflow:hidden，
-               会压扁选项内两行内容（label + desc），popper 的样式只能走全局覆盖 -->
-          <el-select v-model="form.encryption.key_mode" style="width: 100%" popper-class="key-mode-popper">
-            <!-- 选项内说明用内联样式：下拉 popper 会 teleport 到 body，scoped 样式不生效 -->
-            <el-option v-for="o in keyModeOptions" :key="o.value" :value="o.value" :label="o.label">
-              <div style="line-height: 1.5; padding: 2px 0">
-                <div style="font-weight: 500">{{ o.label }}</div>
-                <div style="font-size: 12px; color: var(--bc-text-secondary); white-space: normal">{{ o.desc }}</div>
+          <el-form-item label="存储配额" prop="quota_size">
+            <div class="sf-stack">
+              <div class="sf-quota-row">
+                <el-input-number
+                  v-model="form.quota_size"
+                  :min="0"
+                  :precision="2"
+                  :step="10"
+                  style="width: 160px"
+                />
+                <el-select v-model="form.quota_unit" style="width: 90px">
+                  <el-option value="GB" label="GB" />
+                  <el-option value="TB" label="TB" />
+                </el-select>
               </div>
-            </el-option>
-          </el-select>
-          <span v-if="keyModeDesc" class="hint">{{ keyModeDesc }}</span>
-        </el-form-item>
+              <span class="sf-hint">留 0 = 不限；用于在存储/首页展示"已用/剩余"</span>
+            </div>
+          </el-form-item>
 
-        <el-form-item v-if="form.encryption.key_mode === 'center'" label="加密密码">
-          <!-- 明文展示：自动生成的随机密码需要可直接核对/抄录；留空提交 = 不修改 -->
-          <el-input
-            v-model="form.encryption.password"
-            type="text"
-            :placeholder="passwordPlaceholder"
-          />
-        </el-form-item>
+          <el-form-item label="状态" prop="status">
+            <el-radio-group v-model="form.status">
+              <el-radio value="enabled">启用</el-radio>
+              <el-radio value="disabled">停用</el-radio>
+            </el-radio-group>
+          </el-form-item>
 
-        <el-form-item label="文件名加密">
-          <el-select v-model="form.encryption.filename_encryption" style="width: 100%">
-            <el-option
-              v-for="o in filenameEncryptionOptions"
-              :key="o.value"
-              :value="o.value"
-              :label="o.label"
+          <el-form-item label="强制备份" prop="is_mandatory">
+            <div class="sf-stack">
+              <el-switch v-model="form.is_mandatory" />
+              <span class="sf-hint">开启后，<b>所有</b>网站的备份都会自动推送到此存储（不用挨个网站配）</span>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="管理面板 URL" prop="access_url">
+            <el-input v-model="form.access_url" placeholder="https://console.cloud.tencent.com/cos（可选，用于快速访问存储管理界面）" clearable />
+          </el-form-item>
+
+          <el-form-item label="备注" prop="remark">
+            <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="500" show-word-limit />
+          </el-form-item>
+        </div>
+
+        <!-- 右列：连接与加密 -->
+        <div class="sf-col">
+          <div class="sf-col-title">连接与加密</div>
+
+          <!-- 动态字段（随类型变化） -->
+          <el-form-item
+            v-for="f in currentFields"
+            :key="f.key"
+            :label="f.label"
+            :prop="`config.${f.key}`"
+          >
+            <el-input
+              v-if="f.type === 'text' || f.type === 'password'"
+              v-model="form.config[f.key]"
+              :type="f.type === 'password' ? 'password' : 'text'"
+              :placeholder="f.placeholder"
+              :show-password="f.type === 'password'"
             />
-          </el-select>
-        </el-form-item>
+            <el-input-number
+              v-else-if="f.type === 'number'"
+              v-model="form.config[f.key]"
+              :min="1"
+              :max="65535"
+              style="width: 160px"
+            />
+            <el-input
+              v-else-if="f.type === 'textarea'"
+              v-model="form.config[f.key]"
+              type="textarea"
+              :rows="4"
+              :placeholder="f.placeholder"
+            />
+            <el-select v-else-if="f.type === 'select'" v-model="form.config[f.key]" style="width: 100%">
+              <el-option v-for="o in f.options" :key="String(o.value)" :value="o.value" :label="o.label" />
+            </el-select>
+          </el-form-item>
 
-        <el-form-item label="目录名加密">
-          <el-switch
-            v-model="form.encryption.directory_name_encryption"
-            :disabled="form.encryption.filename_encryption === 'off'"
-          />
-          <span v-if="form.encryption.filename_encryption === 'off'" class="hint">
-            需先选择标准文件名加密
-          </span>
-        </el-form-item>
-      </template>
+          <!-- 备份加密（所有类型通用，rclone crypt 包裹层） -->
+          <el-form-item label="备份加密">
+            <div class="sf-stack">
+              <el-switch v-model="form.encryption.enabled" />
+              <span class="sf-hint">开启后备份文件以加密形式上传至第三方存储（rclone crypt），云端仅存密文；恢复自动解密，不影响现有流程</span>
+            </div>
+          </el-form-item>
 
-      <el-form-item label="目标路径" prop="base_path">
-        <el-input v-model="form.base_path" placeholder="备份文件的目标目录，可选（例如 /backups）" />
-      </el-form-item>
+          <template v-if="form.encryption.enabled">
+            <el-form-item label="密钥模式">
+              <!-- popper-class + style.css 全局规则：EP 下拉项默认 height:34px/overflow:hidden，
+                   会压扁选项内两行内容（label + desc），popper 的样式只能走全局覆盖 -->
+              <div class="sf-stack">
+                <el-select v-model="form.encryption.key_mode" style="width: 100%" popper-class="key-mode-popper">
+                  <!-- 选项内说明用内联样式：下拉 popper 会 teleport 到 body，scoped 样式不生效 -->
+                  <el-option v-for="o in keyModeOptions" :key="o.value" :value="o.value" :label="o.label">
+                    <div style="line-height: 1.5; padding: 2px 0">
+                      <div style="font-weight: 500">{{ o.label }}</div>
+                      <div style="font-size: 12px; color: var(--bc-text-secondary); white-space: normal">{{ o.desc }}</div>
+                    </div>
+                  </el-option>
+                </el-select>
+                <span v-if="keyModeDesc" class="sf-hint">{{ keyModeDesc }}</span>
+              </div>
+            </el-form-item>
 
-      <el-form-item label="存储配额" prop="quota_size">
-        <el-input-number
-          v-model="form.quota_size"
-          :min="0"
-          :precision="2"
-          :step="10"
-          style="width: 160px"
-        />
-        <el-select v-model="form.quota_unit" style="width: 90px; margin-left: 8px">
-          <el-option value="GB" label="GB" />
-          <el-option value="TB" label="TB" />
-        </el-select>
-        <span class="hint">留 0 = 不限；用于在存储/首页展示"已用/剩余"</span>
-      </el-form-item>
+            <el-form-item v-if="form.encryption.key_mode === 'center'" label="加密密码">
+              <!-- 明文展示：自动生成的随机密码需要可直接核对/抄录；留空提交 = 不修改 -->
+              <el-input
+                v-model="form.encryption.password"
+                type="text"
+                :placeholder="passwordPlaceholder"
+              />
+            </el-form-item>
 
-      <el-form-item label="状态" prop="status">
-        <el-radio-group v-model="form.status">
-          <el-radio value="enabled">启用</el-radio>
-          <el-radio value="disabled">停用</el-radio>
-        </el-radio-group>
-      </el-form-item>
+            <el-form-item label="文件名加密">
+              <el-select v-model="form.encryption.filename_encryption" style="width: 100%">
+                <el-option
+                  v-for="o in filenameEncryptionOptions"
+                  :key="o.value"
+                  :value="o.value"
+                  :label="o.label"
+                />
+              </el-select>
+            </el-form-item>
 
-      <el-form-item label="强制备份" prop="is_mandatory">
-        <el-switch v-model="form.is_mandatory" />
-        <span class="mandatory-hint">
-          开启后，<b>所有</b>网站的备份都会自动推送到此存储（不用挨个网站配）
-        </span>
-      </el-form-item>
-
-      <el-form-item label="管理面板 URL" prop="access_url">
-        <el-input v-model="form.access_url" placeholder="https://console.cloud.tencent.com/cos（可选，用于快速访问存储管理界面）" clearable />
-      </el-form-item>
-
-      <el-form-item label="备注" prop="remark">
-        <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="500" show-word-limit />
-      </el-form-item>
+            <el-form-item label="目录名加密">
+              <div class="sf-stack">
+                <el-switch
+                  v-model="form.encryption.directory_name_encryption"
+                  :disabled="form.encryption.filename_encryption === 'off'"
+                />
+                <span v-if="form.encryption.filename_encryption === 'off'" class="sf-hint">
+                  需先选择标准文件名加密
+                </span>
+              </div>
+            </el-form-item>
+          </template>
+        </div>
+      </div>
     </el-form>
 
     <template #footer>
@@ -358,18 +381,56 @@ const onSubmit = () => {
 </template>
 
 <style scoped>
-.mandatory-hint {
-  margin-left: 12px;
+/* 解除 style.css 全局 .el-dialog .el-form { max-width:520px }（为窄对话框设计），横版需要满宽 */
+.el-dialog .sf-form.sf-form { max-width: none; margin: 0; }
+
+.sf-grid {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.sf-col { min-width: 0; }
+.sf-col-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bc-text-primary);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sf-col-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--bc-primary);
+  flex-shrink: 0;
+}
+.sf-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sf-quota-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sf-hint {
   font-size: 12px;
   color: var(--bc-text-secondary);
+  line-height: 1.6;
 }
-.mandatory-hint b {
+.sf-hint b {
   color: var(--bc-danger);
   font-weight: 500;
 }
-.hint {
-  margin-left: 12px;
-  font-size: 12px;
-  color: var(--bc-text-secondary);
+
+/* 窄视口兜底：单列堆叠，避免右列被挤压 */
+@media (max-width: 860px) {
+  .sf-grid { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

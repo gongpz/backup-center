@@ -394,56 +394,38 @@ cat /etc/backup-agent/config.json</pre>
         </el-collapse>
       </el-tab-pane>
 
-      <!-- ============ 新特性速览 ============ -->
-      <el-tab-pane label="新特性" name="whatsnew">
+      <!-- ============ 版本特性 ============ -->
+      <el-tab-pane label="版本特性" name="whatsnew">
         <div class="tab-intro">
-          最近几轮功能更新的一站式导览。
+          当前版本 <b>v1.2.18</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
         </div>
 
         <el-collapse>
-          <el-collapse-item name="pools" title="资源池（对象存储统一管理 · Agent 镜像也归它管）">
+          <el-collapse-item name="browse" title="备份文件在线浏览（v1.2.18）">
             <p class="intro">
-              <b>入口</b>：设置 → 资源池。可以添加多套对象存储凭证（腾讯 COS / 阿里 OSS / 通用 S3），支持自定义域名。
+              <b>入口</b>：存储 → 操作列「浏览」；增量备份的网站 → 操作列「浏览备份」。
               <br /><br />
-              勾选<b>"Agent Mirror"</b>的池子会被自动用作境内机器下载 Agent 二进制的加速镜像。心跳内 Center 会把该池的公开域名 push 给所有 Agent，Agent 自动落地到 config.json。
+              弹窗内以面包屑逐级下钻远端目录，只读展示文件与子目录清单，并实时统计当前目录的递归用量（文件数 + 总大小）。加密存储由 Center 在服务端解密后列出，密钥不进入前端；S3 / WebDAV / FTP / SFTP 全类型存储均可浏览。
               <br /><br />
-              <b>使用</b>：侧栏"资源库"页面可以上传/删除/生成公开链接。资源池里的 <code>backup-agent-linux-amd64/arm64</code> 就是 Agent 更新用的二进制。
+              配合增量备份，可以直接在后台确认每一份快照是否落盘、占用多少空间，不必再登录 VPS 执行 rclone 命令核对。
             </p>
           </el-collapse-item>
 
-          <el-collapse-item name="stgurl" title="存储管理面板 URL（快速访问）">
+          <el-collapse-item name="incremental" title="增量备份（v1.2.17 · 需 Agent v0.15.0+）">
             <p class="intro">
-              添加/编辑存储时可以填一个"管理面板 URL"，比如 <code>https://console.cloud.tencent.com/cos</code>。填了后，存储列表的操作栏会多一个<b>访问</b>按钮，点击直接新标签打开对应存储的管理页面。
-            </p>
-          </el-collapse-item>
-
-          <el-collapse-item name="tsdir" title="备份文件按日期归组（Agent v0.13+）">
-            <p class="intro">
-              Agent 上传备份时，会自动按文件的 mtime 归到 <code>&lt;网站名&gt;/YYYYMMDD/</code> 子目录。
+              网站的第三种备份能力：<b>rsync --link-dest 硬链快照</b>。每次备份只传输变化部分，未改动的文件以硬链保留——空间占用接近一份全量，传输量却只有增量。
               <br /><br />
-              同一天内的所有备份文件（网站 tar + 数据库 sql，即使不同时间打包）都落到同一个日期目录，方便一眼看清"这一天备份了什么"、恢复时一起处理。
+              <b>配置要求</b>：目标存储须为 SFTP 类型、配置 SSH 私钥、未开启加密（rsync 明文写入，与加密层不兼容）；被监控服务器需安装 rsync / ssh；Agent 版本 ≥ 0.15.0 才会识别并执行该指令。
               <br /><br />
-              <i>v0.11-0.12 是按小时归组（<code>YYYYMMDD_HH</code>），会造成同一天的备份被拆到不同小时文件夹里，v0.13 改为按日归组。</i>
+              数据库仍每次全量导出，并随快照一同存档，恢复时网站文件与数据库保持同一时间点。网站列表可一键触发「增量备份」，并通过「浏览备份」查看快照内容。
             </p>
           </el-collapse-item>
 
-          <el-collapse-item name="r2fix" title="S3 兼容存储自动加 no_check_bucket（v0.12+）">
+          <el-collapse-item name="batchcode" title="备份记录按次整合（v1.2.15-v1.2.16）">
             <p class="intro">
-              Cloudflare R2 / 腾讯 COS / 阿里 OSS 的 IAM 一般不给 <code>s3:CreateBucket</code> 权限。rclone 默认在 upload 前会探测/创建 bucket，就会 403 失败。
+              备份记录页按<b>任务编码（batch_code）</b>把一次备份产生的所有文件（网站 tar + 数据库 sql）整合为一张卡片，跨天套件按天拆分，恢复时勾选同一批次即可整套处理。
               <br /><br />
-              Agent v0.12.0 起，Center 和 Agent 生成的 rclone.conf 都自动加 <code>no_check_bucket = true</code>，绕过这一步，直接开始 PUT 对象。R2 上传现在能正常工作了。
-            </p>
-          </el-collapse-item>
-
-          <el-collapse-item name="setui" title="设置页 UI 重设计">
-            <p class="intro">
-              顶部横向 tab 导航（系统 / 系统备份 / 资源池 / 账户 / 通知），每个 tab 内容都用左右卡片布局充分利用横向空间。<b>外观（主题）</b>合并进了<b>系统</b>tab。
-            </p>
-          </el-collapse-item>
-
-          <el-collapse-item name="tz" title="宿主机时区改为 Asia/Shanghai">
-            <p class="intro">
-              VPS 宿主机时区从欧洲（CEST）改到北京时间。这样 <code>docker logs</code>、systemd journal、Agent 日志的时间戳都是北京时间，不用换算。容器内 TZ 和 Laravel APP_TIMEZONE 早就是 Asia/Shanghai。
+              详情弹窗展示每个文件的上传结果（成功/部分失败/失败及原因），点「同步」可查看 Agent 实际扫描与上传的文件数。
             </p>
           </el-collapse-item>
         </el-collapse>
