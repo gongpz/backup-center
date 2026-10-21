@@ -37,6 +37,16 @@ const backupMeta = {
   running: { text: '执行中', cls: 'run' },
 }
 
+// 三种备份模式（与 WebsiteFormDialog 的三选一概念对齐；底层仍是 backup_source × backup_mode）
+const backupModeMeta = {
+  simple:      { text: '轻便模式', sub: '外部压缩', cls: 'chip-cyan' },
+  advanced:    { text: '高级模式', sub: '自主压缩', cls: 'chip-blue' },
+  incremental: { text: '增量模式', sub: 'rsync 硬链快照', cls: 'chip-purple' },
+}
+const modeKeyOf = (row) => (
+  row.backup_source !== 'self' ? 'simple' : (row.backup_mode === 'incremental' ? 'incremental' : 'advanced')
+)
+
 const doFetch = async () => {
   const res = await websitesApi.list({
     keyword: filters.keyword || undefined,
@@ -457,7 +467,7 @@ const total = computed(() => meta.total)
                 @click="syncNow(row)"
               >同步</el-button>
               <el-button
-                v-if="row.backup_source === 'self'"
+                v-if="row.backup_source === 'self' && row.backup_mode !== 'incremental'"
                 link
                 :icon="Box"
                 type="primary"
@@ -478,7 +488,12 @@ const total = computed(() => meta.total)
                 :icon="FolderOpened"
                 @click="openBrowse(row)"
               >浏览备份</el-button>
-              <el-button link :icon="Key" @click="openBind(row)">绑定</el-button>
+              <el-button
+                v-if="row.backup_source === 'self'"
+                link
+                :icon="Key"
+                @click="openBind(row)"
+              >绑定</el-button>
               <el-button link :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link :icon="Delete" type="danger" @click="remove(row)">删除</el-button>
             </div>
@@ -514,6 +529,16 @@ const total = computed(() => meta.total)
               >{{ detailRow.server.connect_type === 'agent' ? 'Agent' : 'SSH' }}</span>
             </template>
             <span v-else class="muted">—</span>
+          </span>
+        </div>
+
+        <div class="detail-row">
+          <span class="detail-label">备份模式</span>
+          <span class="detail-value">
+            <span class="chip" :class="backupModeMeta[modeKeyOf(detailRow)].cls">
+              {{ backupModeMeta[modeKeyOf(detailRow)].text }}
+            </span>
+            <span class="muted" style="margin-left: 8px">{{ backupModeMeta[modeKeyOf(detailRow)].sub }}</span>
           </span>
         </div>
 
