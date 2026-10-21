@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Check, Link, Upload, Cloudy, MostlyCloudy } from '@element-plus/icons-vue'
 import { storagesApi } from '@/api/storages'
 import { storageTypes, typeFields, encryptionFields, defaultEncryption, normalizeEncryption } from '@/utils/storage-types'
 
@@ -29,6 +30,16 @@ const form = reactive({
   config: {},
   encryption: { ...defaultEncryption },
 })
+
+// 存储类型卡片：图标组件映射（storage-types.js 里存的是图标名字符串）
+const typeIcons = { Link, Upload, Cloudy, MostlyCloudy }
+// 每种类型的一句话说明（卡片副标题）
+const typeDescs = {
+  sftp: 'SSH 加密传输，支持私钥',
+  ftp: '传统 FTP，支持 TLS',
+  webdav: 'Nextcloud / 网盘等',
+  s3: 'COS / OSS / MinIO',
+}
 
 const UNIT_BYTES = { GB: 1024 ** 3, TB: 1024 ** 4 }
 const encodeQuota = () => {
@@ -212,18 +223,39 @@ const onSubmit = () => {
       require-asterisk-position="left"
     >
       <div class="sf-grid">
+        <!-- 存储类型：整行卡片。类型决定右列出现哪些连接字段，是表单的第一决策，
+             提升为顶部整行选择（与网站弹窗的备份模式卡片同一设计语言） -->
+        <div class="sf-type-row">
+          <div class="sf-col-title">
+            存储类型
+            <span v-if="isEdit" class="sf-type-lock">创建后不可修改</span>
+          </div>
+          <div class="type-cards">
+            <button
+              v-for="t in storageTypes"
+              :key="t.value"
+              type="button"
+              class="type-card"
+              :class="{ active: form.type === t.value }"
+              :style="{ '--tc': t.color }"
+              :disabled="isEdit"
+              :title="isEdit ? '存储类型创建后不可修改' : ''"
+              @click="form.type = t.value"
+            >
+              <span class="tc-check"><el-icon><Check /></el-icon></span>
+              <span class="tc-icon"><el-icon><component :is="typeIcons[t.icon]" /></el-icon></span>
+              <span class="tc-name">{{ t.label }}</span>
+              <span class="tc-desc">{{ typeDescs[t.value] }}</span>
+            </button>
+          </div>
+        </div>
+
         <!-- 左列：基本信息 -->
         <div class="sf-col">
           <div class="sf-col-title">基本信息</div>
 
           <el-form-item label="名称" prop="name">
             <el-input v-model="form.name" placeholder="例如：HostBrr Storage Box" />
-          </el-form-item>
-
-          <el-form-item label="类型" prop="type">
-            <el-radio-group v-model="form.type" :disabled="isEdit">
-              <el-radio v-for="t in storageTypes" :key="t.value" :value="t.value">{{ t.label }}</el-radio>
-            </el-radio-group>
           </el-form-item>
 
           <el-form-item label="目标路径" prop="base_path">
@@ -387,7 +419,7 @@ const onSubmit = () => {
 .sf-grid {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
-  gap: 20px;
+  gap: 20px 20px;
   align-items: start;
 }
 .sf-col { min-width: 0; }
@@ -408,6 +440,90 @@ const onSubmit = () => {
   background: var(--bc-primary);
   flex-shrink: 0;
 }
+.sf-type-lock {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--bc-text-secondary);
+}
+.sf-type-lock::before { content: ''; }
+
+/* ---------- 存储类型卡片（整行） ---------- */
+.sf-type-row {
+  grid-column: 1 / -1;
+  padding-bottom: 18px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--bc-border-light);
+}
+.type-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.type-card {
+  position: relative;
+  text-align: left;
+  border: 1px solid var(--bc-border);
+  border-radius: 12px;
+  background: var(--bc-bg-card);
+  padding: 12px 14px 11px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+  font-family: inherit;
+}
+.type-card:hover:not(:disabled) {
+  border-color: var(--tc);
+  background: var(--bc-bg-hover);
+}
+.type-card.active {
+  border-color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 7%, var(--bc-bg-card));
+  box-shadow: 0 0 0 1px var(--tc);
+}
+.type-card:disabled {
+  cursor: not-allowed;
+  opacity: .72;
+}
+.tc-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--bc-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  font-size: 12px;
+  transition: all .15s;
+}
+.type-card.active .tc-check {
+  background: var(--tc);
+  border-color: var(--tc);
+  color: #fff;
+}
+.tc-icon {
+  color: var(--tc);
+  font-size: 18px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.tc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bc-text-primary);
+}
+.tc-desc {
+  font-size: 11px;
+  color: var(--bc-text-secondary);
+  line-height: 1.5;
+}
+
+/* ---------- 两列内容 ---------- */
 .sf-stack {
   width: 100%;
   display: flex;
@@ -429,8 +545,11 @@ const onSubmit = () => {
   font-weight: 500;
 }
 
-/* 窄视口兜底：单列堆叠，避免右列被挤压 */
+/* 窄视口兜底：单列堆叠，避免右列被挤压；类型卡片过窄时改 2×2 */
 @media (max-width: 860px) {
   .sf-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .type-cards { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
