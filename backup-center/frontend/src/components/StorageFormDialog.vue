@@ -557,11 +557,11 @@ const onSubmit = () => {
   gap: 4px;
 }
 /* 同行字段组（storage-types.js 的 row 标记）：单字段组保持块级；
-   多字段组（用户名 + 端口）双列网格——用户名在前占宽、端口在后定宽 */
+   多字段组双列网格——前者占宽（主机/用户名）、后者定宽（端口/密码） */
 .sf-field-row { display: block; }
 .sf-field-row.is-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
+  grid-template-columns: minmax(0, 1fr) 220px;
   column-gap: 16px;
 }
 /* 状态 + 强制备份同行 */

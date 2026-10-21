@@ -69,10 +69,11 @@ export const typeFields = {
     { key: 'private_key', label: 'SSH 私钥', type: 'textarea', required: false, placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----' },
   ],
   ftp: [
-    { key: 'host',                 label: '主机',   type: 'text',     required: true, placeholder: 'ftpX.hostypanel.com 或 box.example.com' },
-    { key: 'user',                 label: '用户名', type: 'text',     required: true, row: 'user-port' },
-    { key: 'port',                 label: '端口',   type: 'number',   required: false, default: 21, placeholder: '21 (FTPS 通常 21 或 990)', row: 'user-port' },
-    { key: 'password',             label: '密码',   type: 'password', required: true },
+    // row 相同的连续字段在表单里合并为一行：主机+端口（连接）、用户名+密码（凭据）
+    { key: 'host',                 label: '主机',   type: 'text',     required: true, placeholder: 'ftpX.hostypanel.com 或 box.example.com', row: 'host-port' },
+    { key: 'port',                 label: '端口',   type: 'number',   required: false, default: 21, placeholder: '21 (FTPS 通常 21 或 990)', row: 'host-port' },
+    { key: 'user',                 label: '用户名', type: 'text',     required: true, row: 'user-password' },
+    { key: 'password',             label: '密码',   type: 'password', required: true, row: 'user-password' },
     { key: 'tls',                  label: 'FTPS（Implicit TLS）', type: 'select', required: false, default: false,
       options: [
         { value: false, label: '关闭（标准 FTP，21 端口）' },
@@ -83,7 +84,7 @@ export const typeFields = {
         { value: false, label: '关闭' },
         { value: true,  label: '开启（FTPES / AUTH TLS，21 端口起协商）' },
       ]},
-    { key: 'no_check_certificate', label: '跳过 TLS 证书校验', type: 'select', required: false, default: false,
+    { key: 'no_check_certificate', label: '跳过证书校验', type: 'select', required: false, default: false,
       options: [
         { value: false, label: '否（默认，安全）' },
         { value: true,  label: '是（自签名证书环境用）' },

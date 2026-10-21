@@ -226,6 +226,26 @@ const auth = useAuthStore()
             <p class="tip">每个网站三选一，在「添加 / 编辑网站」弹窗顶部的模式卡片中切换。</p>
           </el-collapse-item>
 
+          <el-collapse-item name="restore-modes">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">两种恢复模式</span>
+                <span class="chip chip-purple">恢复</span>
+              </div>
+            </template>
+            <table class="kv-table">
+              <tr>
+                <td class="k">轻便恢复</td>
+                <td class="v">远程拉回备份文件到服务器备份目录，由管理员手动解压、导入数据库。</td>
+              </tr>
+              <tr>
+                <td class="k">高级恢复</td>
+                <td class="v">全自动恢复：自动预备份（网站目录打包、数据库导出）→ 解压覆盖网站根目录 → 重建并导入数据库。</td>
+              </tr>
+            </table>
+            <p class="tip">在「添加 / 编辑网站」弹窗的恢复模式中选择；高级恢复已支持（预备备、覆盖、导库全自动），恢复前自动预备份，可回滚。</p>
+          </el-collapse-item>
+
           <el-collapse-item name="who">
             <template #title>
               <div class="col-title">
@@ -249,6 +269,19 @@ const auth = useAuthStore()
         </div>
 
         <el-collapse>
+          <el-collapse-item name="mandatory">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">强制备份（系统自动推送）</span>
+                <span class="chip chip-blue">推送规则</span>
+              </div>
+            </template>
+            <p class="intro">
+              存储上开启「强制备份」后，<b>所有</b>网站的备份都会自动推送到此存储——不用挨个网站配。
+              在「添加 / 编辑网站」弹窗的「推送到」一栏中，这类存储以锁定形式展示，无需选择；
+              其余存储仍可按网站自由勾选。
+            </p>
+          </el-collapse-item>
           <el-collapse-item
             v-for="ex in storageExamples"
             :key="ex.key"

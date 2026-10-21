@@ -344,14 +344,12 @@ const onSubmit = () => {
           <el-form-item label="推送到" prop="storage_ids">
             <div style="width: 100%">
               <div v-if="mandatoryStorages.length" class="mandatory-notice">
-                <span class="mn-title">🔒 强制备份到（系统自动推送，无需选择）</span>
-                <div class="mn-list">
-                  <span
-                    v-for="s in mandatoryStorages"
-                    :key="s.id"
-                    class="mn-chip"
-                  >{{ s.name }} <span class="mn-type">· {{ s.type }}</span></span>
-                </div>
+                <span class="mn-title">🔒 强制备份到</span>
+                <span
+                  v-for="s in mandatoryStorages"
+                  :key="s.id"
+                  class="mn-chip"
+                >{{ s.name }} <span class="mn-type">· {{ s.type }}</span></span>
               </div>
 
               <el-select
@@ -387,23 +385,10 @@ const onSubmit = () => {
           </el-form-item>
 
           <el-form-item label="恢复模式" prop="restore_mode">
-            <div class="wf-stack">
-              <el-radio-group v-model="form.restore_mode">
-                <el-radio value="lite">轻便恢复</el-radio>
-                <el-radio value="advanced">
-                  高级恢复
-                  <span class="mode-tag mode-tag-ready">已支持</span>
-                </el-radio>
-              </el-radio-group>
-              <span class="mp-hint">
-                <template v-if="form.restore_mode === 'lite'">
-                  远程拉回备份文件到服务器备份目录，由管理员手动解压、导入数据库。
-                </template>
-                <template v-else>
-                  全自动恢复：自动预备份（网站目录打包、数据库导出）→ 解压覆盖网站根目录 → 重建并导入数据库。
-                </template>
-              </span>
-            </div>
+            <el-radio-group v-model="form.restore_mode">
+              <el-radio value="lite">轻便恢复</el-radio>
+              <el-radio value="advanced">高级恢复</el-radio>
+            </el-radio-group>
           </el-form-item>
 
           <el-form-item label="状态" prop="status">
@@ -823,41 +808,23 @@ const onSubmit = () => {
 
 .db-cfg { width: 100%; display: flex; flex-direction: column; gap: 10px; }
 .db-cfg-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.mode-tag {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  vertical-align: middle;
-}
-.mode-tag-ready {
-  background: var(--bc-success-bg, #eaf7f0);
-  border: 1px solid var(--bc-success-border, #bfe6d0);
-  color: var(--bc-success, #2f9e63);
-}
-
-/* 强制备份提示区 */
+/* 强制备份提示区：标题与存储标签同一行（窄视口允许换行） */
 .mandatory-notice {
   background: var(--bc-danger-bg);
   border: 1px solid var(--bc-danger-border);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .mn-title {
   font-size: 12px;
   color: var(--bc-danger);
   font-weight: 500;
-}
-.mn-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  white-space: nowrap;
 }
 .mn-chip {
   display: inline-flex;
