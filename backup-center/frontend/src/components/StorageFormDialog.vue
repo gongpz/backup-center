@@ -209,7 +209,7 @@ const onSubmit = () => {
   <el-dialog
     :model-value="modelValue"
     :title="title"
-    width="900px"
+    width="980px"
     :close-on-click-modal="false"
     @update:model-value="(v) => emit('update:modelValue', v)"
   >
@@ -419,7 +419,7 @@ const onSubmit = () => {
 
 .sf-grid {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: 400px minmax(0, 1fr);
   gap: 20px 20px;
   align-items: start;
 }
@@ -547,6 +547,8 @@ const onSubmit = () => {
   flex-wrap: nowrap;
 }
 .sf-status-row :deep(.el-radio) { margin-right: 12px; }
+/* 单选组不收缩：空间不足时宁可溢出也不把两个 radio 拆成两行 */
+.sf-status-row :deep(.el-radio-group) { flex-shrink: 0; }
 .sf-sublabel {
   font-size: 13px;
   color: var(--bc-text-primary);
@@ -568,10 +570,10 @@ const onSubmit = () => {
 }
 
 /* 窄视口兜底：单列堆叠，避免右列被挤压；类型卡片过窄时改 2×2 */
-@media (max-width: 860px) {
+@media (max-width: 880px) {
   .sf-grid { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 760px) {
+@media (max-width: 720px) {
   .type-cards { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

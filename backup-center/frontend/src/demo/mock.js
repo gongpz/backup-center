@@ -294,7 +294,7 @@ db.logs = [
 ;(() => {
   const w = findById(db.websites, 1)
   if (w && w.backup_source === 'self') {
-    const addSelfLog = (filename, size) => {
+    const addSelfLog = (filename, size, batchCode) => {
       const id = nextId('log')
       const at = hours(2)
       db.logs.unshift({
@@ -304,6 +304,7 @@ db.logs = [
         server: w.server,
         website_id: w.id,
         server_id: w.server_id,
+        ...(batchCode ? { batch_code: batchCode } : {}),
         filename,
         full_path: `${w.web_root}/backup/${filename}`,
         size,
@@ -323,8 +324,9 @@ db.logs = [
         }],
       })
     }
-    addSelfLog('main_site-web-20261014-020001.tar.gz', 2.2 * GB)
-    addSelfLog('main_site-db-20261014-030000.sql.gz', 360 * MB)
+    // batch_code = self_backup 指令 ID：同一次自主压缩的两个产物共用（恢复页按编码精确成组）
+    addSelfLog('main_site-web-20261014-020001.tar.gz', 2.2 * GB, 10185)
+    addSelfLog('main_site-db-20261014-030000.sql.gz', 360 * MB, 10185)
   }
 })()
 
@@ -445,6 +447,80 @@ const fileLabel = (log, website) => {
   return fallback
 }
 
+/* ---------- 备份套件合并（与后端 RestoreController::buildSuites 同策略） ----------
+ * ① batch_code 非空（self_backup 指令 ID）：同编码精确成组
+ * ② 无编码文件（external 扫描发现）：每个 website 文件配窗口内时间最近的未配对 database 文件
+ * ③ 窗口兜底：剩余文件归并进窗口内有空的组（与组内最早比较，防链式合并）
+ * ④ 组内按 backup_at 倒序；suite_id 取组内最新文件的 backup_log_id（与旧约定一致） */
+const SUITE_WINDOW_SECONDS = 300
+const byBackupAtDesc = (a, b) => new Date(b.backup_at) - new Date(a.backup_at)
+const buildSuites = (files, windowSeconds = SUITE_WINDOW_SECONDS) => {
+  const groups = []
+  const used = new Set()
+  const paired = new Set()
+
+  // ① batch_code 精确成组
+  const coded = new Map()
+  for (const f of files) {
+    if (!f.batch_code) continue
+    if (!coded.has(f.batch_code)) coded.set(f.batch_code, [])
+    coded.get(f.batch_code).push(f)
+    used.add(f.backup_log_id)
+  }
+  for (const list of coded.values()) groups.push(list)
+
+  // ② 类型配对：website 配窗口内最近的未配对 database；未配上的 website 自成一组（不进兜底）
+  const pool = files.filter((f) => !used.has(f.backup_log_id))
+  for (const web of pool.filter((f) => f.type === 'website')) {
+    const cand = pool
+      .filter((f) => f.type === 'database' && !paired.has(f.backup_log_id))
+      .map((f) => ({ f, diff: Math.abs(new Date(f.backup_at) - new Date(web.backup_at)) / 1000 }))
+      .filter((x) => x.diff <= windowSeconds)
+      .sort((a, b) => a.diff - b.diff)[0]
+    paired.add(web.backup_log_id)
+    if (cand) {
+      paired.add(cand.f.backup_log_id)
+      groups.push([web, cand.f])
+    } else {
+      groups.push([web])
+    }
+  }
+
+  // ③ 窗口兜底：仅未配对 database + 非 website/database 文件（快照等）；
+  // 只与「上一个兜底组」比较、且对组内最早元素比较，防链式合并（与后端逐行对齐）
+  const leftoverGroups = []
+  for (const f of pool.filter((x) => !paired.has(x.backup_log_id))) {
+    const n = leftoverGroups.length
+    let merged = false
+    if (n > 0) {
+      const prev = leftoverGroups[n - 1]
+      const earliest = prev[prev.length - 1].backup_at
+      if (earliest && Math.abs(new Date(earliest) - new Date(f.backup_at)) / 1000 <= windowSeconds) {
+        prev.push(f)
+        merged = true
+      }
+    }
+    if (!merged) leftoverGroups.push([f])
+  }
+  for (const g of leftoverGroups) groups.push(g)
+
+  const suites = groups.map((g) => {
+    const list = [...g].sort(byBackupAtDesc)
+    return { suite_id: `suite-${list[0].backup_log_id}`, files: list }
+  })
+  suites.sort((a, b) => byBackupAtDesc(a.files[0], b.files[0]))
+  return suites
+}
+
+// 与后端 aggregateRestoreState 同优先级：failed > dispatched > pending > success
+const aggregateRestoreState = (states) => {
+  if (!states.length) return null
+  if (states.includes('failed')) return 'failed'
+  if (states.includes('dispatched')) return 'dispatched'
+  if (states.includes('pending')) return 'pending'
+  return 'success'
+}
+
 // 自主压缩（self）的最近备份：从 db.logs 里挑出 <name>-web-*.tar.gz 与 <name>-db-*.sql.gz 各最新一条，
 // 包装成 [{ label:'网站目录', path, log }, { label:'数据库', path:'（数据库）', log }]（无则省略）。
 const buildRecentSelfBackups = (website) => {
@@ -517,6 +593,191 @@ const scheduleRestore = (cmd) => {
   steps.forEach((s, i) => setTimeout(() => { if (cmd.status !== 'success') cmd.output = s }, 8000 + i * 5000))
   setTimeout(finish, 8000 + steps.length * 5000)
 }
+
+/* ============================================================
+   恢复演示数据（v1.2.18）：让「数据恢复」页呈现与生产一致的天级套件卡片
+   - 电商平台（advanced 恢复模式）：今天 3 场次（全部可恢复 / 已恢复 / 1/2 可恢复）
+     + 昨天 2 场次（其中一场预置 pending 命令，演示 待执行→执行中→已恢复 实时流转）
+     + 2 天前 1 场次全部上传失败（禁用卡）
+   - 内部 OA（self 高级模式）：今天 1 场次自主压缩（web/db 共用 batch_code，精确成组）
+   - db.logs 统一按 backup_at 倒序（与后端 orderByDesc('backup_at') 一致）
+   ============================================================ */
+;(() => {
+  const added = []
+  const p2 = (n) => String(n).padStart(2, '0')
+  // 距今年数 + 秒偏移：让同一场次的 web/db 两个产物落在 300s 合并窗口内
+  const atWith = (h, sec) => new Date(NOW - h * 3600000 + sec * 1000).toISOString()
+  // 外部扫描产物名：shop_20261021_040000.tar.gz / shop_mysql_20261021_040040.sql.gz
+  const scanStamp = (iso) => {
+    const d = new Date(iso)
+    return `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`
+  }
+  // 自主压缩产物名：oa_main-web-20261021-050000.tar.gz（与官网主站预置同款格式）
+  const selfStamp = (iso) => scanStamp(iso).replace('_', '-')
+
+  // 造一条「外部扫描发现」的备份日志：succeeded/failed 派生 uploads（与静态种子同构）
+  const addScanLog = (website, filename, size, at, dir, opts = {}) => {
+    const id = nextId('log')
+    const failed = opts.status === 'failed'
+    const succeeded = failed ? [] : (opts.stores || [{ storage_name: 'Hetzner 主存储' }, { storage_name: 'Backblaze B2' }])
+    const failedStores = failed ? [{ storage_name: 'Nextcloud 异地', error: 'permission denied' }] : []
+    const log = {
+      ...mkLog(id, website.name, website.server?.name, size, failed ? 'failed' : 'success', 0, Math.round(size / (28 * MB))),
+      id,
+      website: { name: website.name, domain: website.domain },
+      server: website.server,
+      website_id: website.id,
+      server_id: website.server_id,
+      filename,
+      full_path: `${dir}/backup/${filename}`,
+      size,
+      status: failed ? 'failed' : 'success',
+      backup_at: at,
+      synced_at: at,
+      created_at: at,
+      upload_status: failed ? 'upload_failed' : 'uploaded',
+      succeeded,
+      failed: failedStores,
+      uploads: succeeded.map((s, i) => ({
+        id: id * 10 + i + 1,
+        storage_name: s.storage_name,
+        storage_type: i === 0 ? 'sftp' : 's3',
+        status: 'uploaded',
+        uploaded_bytes: size,
+        duration_seconds: 40 + i * 12,
+        attempts: 1,
+        finished_at: at,
+        error_message: null,
+        remote_path: `/backups/${website.name}/${filename}`,
+      })).concat(failedStores.map((f, i) => ({
+        id: id * 10 + 50 + i,
+        storage_name: f.storage_name,
+        storage_type: 'webdav',
+        status: 'failed',
+        uploaded_bytes: 0,
+        duration_seconds: 12,
+        attempts: 3,
+        finished_at: at,
+        error_message: f.error,
+        remote_path: null,
+      }))),
+    }
+    added.push(log)
+    return log
+  }
+
+  // 电商平台：external 扫描口径，一场次 = web 站点目录 + db 数据库转储（间隔 ≤45s）
+  const shop = findById(db.websites, 3)
+  const sessions = {}
+  if (shop) {
+    const webDir = shop.backup_paths?.[0]?.path || '/data/shop'
+    const dbDir = shop.backup_paths?.[1]?.path || webDir
+    const session = (key, h, opts = {}) => {
+      const webAt = atWith(h, 0)
+      const dbAt = atWith(h, opts.dbGap ?? 40)
+      sessions[key] = {
+        web: addScanLog(shop, `shop_${scanStamp(webAt)}.tar.gz`, opts.webSize ?? 2.5 * GB, webAt, webDir, { status: opts.webStatus, stores: opts.webStores }),
+        db: addScanLog(shop, `shop_mysql_${scanStamp(dbAt)}.sql.gz`, opts.dbSize ?? 410 * MB, dbAt, dbDir, { status: opts.dbStatus }),
+      }
+    }
+    session('a', 4)                                                                                  // 今天 04:00 前后 · 全部可恢复
+    session('b', 6)                                                                                  // 今天 06:00 前后 · 预置已恢复命令
+    session('c', 8, { webSize: 2.4 * GB, webStores: [{ storage_name: 'Hetzner 主存储' }], dbStatus: 'failed' }) // 今天 08:00 前后 · 1/2 可恢复
+    session('d', 26)                                                                                 // 昨天 · 全部可恢复
+    session('e', 28)                                                                                 // 昨天 · 预置 pending 命令（实时流转）
+    session('f', 52, { webStatus: 'failed', dbStatus: 'failed' })                                    // 2 天前 · 全部上传失败
+  }
+
+  // 内部 OA：self 自主压缩口径，web/db 共用 batch_code 与同一 backup_at（精确成组，match=exact）
+  const oa = findById(db.websites, 6)
+  if (oa && oa.backup_source === 'self') {
+    const at = atWith(5, 0)
+    const addOaLog = (filename, size) => {
+      const id = nextId('log')
+      added.push({
+        ...mkLog(id, oa.name, oa.server?.name, size, 'success', 0, 60),
+        id,
+        website: { name: oa.name, domain: oa.domain },
+        server: oa.server,
+        website_id: oa.id,
+        server_id: oa.server_id,
+        batch_code: 10201,
+        filename,
+        full_path: `${oa.web_root}/backup/${filename}`,
+        size,
+        status: 'success',
+        backup_at: at,
+        synced_at: at,
+        created_at: at,
+        upload_status: 'uploaded',
+        uploads: [{
+          id: id * 10 + 1,
+          storage_name: 'Hetzner 主存储',
+          storage_type: 'sftp',
+          status: 'uploaded',
+          uploaded_bytes: size,
+          duration_seconds: 40,
+          attempts: 1,
+          finished_at: at,
+          error_message: null,
+          remote_path: `/backups/${oa.name}/${filename}`,
+        }],
+      })
+    }
+    addOaLog(`oa_main-web-${selfStamp(at)}.tar.gz`, 900 * MB)
+    addOaLog(`oa_main-db-${selfStamp(at)}.sql.gz`, 180 * MB)
+  }
+
+  db.logs.unshift(...added)
+  // 与后端一致：备份记录按 backup_at 倒序（静态种子 + 预置日志统一排序）
+  db.logs.sort((a, b) => new Date(b.backup_at) - new Date(a.backup_at) || b.id - a.id)
+
+  /* ---------- 预置恢复命令：点亮「已恢复 / 执行中」徽标与仪表盘恢复统计 ---------- */
+  const addRestoreCmd = (log, opts = {}) => {
+    const upload = latestUpload(log)
+    if (!upload) return null
+    const filename = upload.remote_path.split('/').pop()
+    const cmd = {
+      id: opts.id,
+      server_id: log.server_id,
+      type: 'restore',
+      status: opts.status || 'success',
+      output: null,
+      error: null,
+      completed_at: null,
+      dispatched_at: null,
+      created_at: new Date(NOW - 30 * 60000).toISOString(),
+      params: {
+        backup_log_id: log.id,
+        upload_id: upload.id,
+        remote_path: upload.remote_path,
+        local_dir: opts.local_dir,
+        filename,
+        ...(opts.advanced ? { restore_mode: 'advanced', website_id: opts.website_id } : {}),
+      },
+    }
+    if (cmd.status === 'success') {
+      cmd.dispatched_at = new Date(NOW - 29 * 60000).toISOString()
+      cmd.completed_at = new Date(NOW - 28 * 60000).toISOString()
+      cmd.output = /\.sql\.gz$/i.test(filename)
+        ? `高级恢复完成：数据库已重建导入（预备备 ${opts.local_dir}.bak-20261021.sql）`
+        : `高级恢复完成：网站目录已覆盖（预备备 ${opts.local_dir}.bak-20261021.tar.gz）`
+    }
+    db.restoreCommands.push(cmd)
+    return cmd
+  }
+
+  if (sessions.b) {
+    // 今天 06:00 场次：web + db 两条 success 命令 → 套件徽标「已恢复」
+    addRestoreCmd(sessions.b.web, { id: 1, local_dir: shop.web_root, advanced: true, website_id: shop.id })
+    addRestoreCmd(sessions.b.db, { id: 2, local_dir: '/tmp/bc-restore-3-1729000000', advanced: true, website_id: shop.id })
+  }
+  if (sessions.e) {
+    // 昨天 28h 场次的 web 文件：pending → dispatched(6s) → success(18s)，演示刷新后进度恢复
+    const cmd = addRestoreCmd(sessions.e.web, { id: 3, status: 'pending', local_dir: shop.web_root, advanced: true, website_id: shop.id })
+    if (cmd) scheduleRestore(cmd)
+  }
+})()
 
 /** Agent 升级：下发后模拟「待执行 → 执行中 → 成功」的状态推进 */
 const scheduleAgentUpgrade = (serverId, cmdId) => {
@@ -1190,19 +1451,18 @@ const routes = [
   })],
   ['get', /^\/restore\/backups$/, (m, p) => {
     const website = findById(db.websites, Number(p.website_id))
-    if (!website) return { data: [] }
+    if (!website) return { data: [], active_commands: [] }
     const days = RANGE_DAYS[p.range] || 30
     const since = Date.now() - days * 86400000
 
-    const groups = {}
+    // 1) 收集文件（与后端同口径：范围内全部日志，含上传失败的——restorable=false）
+    const files = []
     db.logs
       .filter((l) => l.website_id === website.id && new Date(l.backup_at).getTime() >= since)
       .sort((a, b) => new Date(b.backup_at) - new Date(a.backup_at) || b.id - a.id)
       .forEach((l) => {
-        const date = localDate(l.backup_at)
         const latest = latestUpload(l)
-        if (!groups[date]) groups[date] = []
-        groups[date].push({
+        files.push({
           backup_log_id: l.id,
           label: fileLabel(l, website),
           type: fileType(l.filename),
@@ -1210,6 +1470,7 @@ const routes = [
           full_path: l.full_path,
           size: l.size,
           backup_at: l.backup_at,
+          batch_code: String(l.batch_code ?? ''),
           restorable: !!latest,
           latest_upload: latest ? {
             id: latest.id,
@@ -1221,14 +1482,74 @@ const routes = [
         })
       })
 
-    return {
-      data: Object.keys(groups).sort().reverse().map((date) => ({
-        date,
-        total_count: groups[date].length,
-        restorable_count: groups[date].filter((f) => f.restorable).length,
-        files: groups[date],
-      })),
+    // 2) 套件合并：batch_code 精确成组 → 类型配对 → 300s 窗口兜底（buildSuites 与后端同策略）
+    const suites = buildSuites(files)
+
+    // 3) 每个 backup_log 取最新一条 restore 命令（含终态，用于「已恢复」徽标）
+    const latestByLog = {}
+    db.restoreCommands
+      .slice()
+      .sort((a, b) => b.id - a.id)
+      .forEach((c) => {
+        const logId = String(c.params.backup_log_id)
+        if (!latestByLog[logId]) latestByLog[logId] = c
+      })
+
+    // 4) 日期分组：按文件级 backup_at 归属；suite 跨天时在多个日期组呈现，统计与状态按天重算
+    const dayGroups = {}
+    for (const suite of suites) {
+      const byDate = {}
+      for (const f of suite.files) {
+        const d = localDate(f.backup_at)
+        if (!byDate[d]) byDate[d] = []
+        byDate[d].push(f)
+      }
+      for (const date of Object.keys(byDate)) {
+        const dayFiles = byDate[date] // 组内已按 backup_at 倒序
+        const states = []
+        for (const f of dayFiles) {
+          const cmd = latestByLog[String(f.backup_log_id)]
+          if (cmd) states.push(cmd.status)
+        }
+        const times = [...new Set(dayFiles.map((f) => f.backup_at).filter(Boolean))]
+        if (!dayGroups[date]) dayGroups[date] = []
+        dayGroups[date].push({
+          suite_id: suite.suite_id,
+          backup_at: dayFiles[0].backup_at,
+          // match：当天文件 backup_at 是否完全一致（self 精确合并 / external 窗口合并）
+          match: times.length <= 1 ? 'exact' : 'window',
+          total_count: dayFiles.length,
+          restorable_count: dayFiles.filter((f) => f.restorable).length,
+          total_size: dayFiles.reduce((sum, f) => sum + (f.size || 0), 0),
+          restore_state: aggregateRestoreState(states),
+          files: dayFiles,
+        })
+      }
     }
+
+    // 日期倒序 + 组内套件倒序（新→旧）
+    const out = Object.keys(dayGroups).sort().reverse().map((date) => ({
+      date,
+      suites: dayGroups[date].sort((a, b) => new Date(b.backup_at) - new Date(a.backup_at)),
+    }))
+
+    // 5) 进行中的恢复命令（pending/dispatched）：刷新后恢复进度展示与重复下发防护
+    const logIds = files.map((f) => f.backup_log_id)
+    const active = []
+    for (const logId of Object.keys(latestByLog)) {
+      const cmd = latestByLog[logId]
+      if (!logIds.includes(Number(logId))) continue
+      if (cmd.status !== 'pending' && cmd.status !== 'dispatched') continue
+      active.push({
+        backup_log_id: Number(logId),
+        command_id: cmd.id,
+        status: cmd.status,
+        filename: (cmd.params.remote_path || '').split('/').pop(),
+        local_dir: cmd.params.local_dir || '',
+      })
+    }
+
+    return { data: out, active_commands: active }
   }],
   ['post', /^\/restore$/, (m, p, body) => {
     const results = {}
