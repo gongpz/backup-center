@@ -98,8 +98,8 @@ class StorageFileController extends Controller
             // 8) 成功：转成前端条目结构（目录优先 / 排序 / 500 条截断）。
             //    条目 path 拼上当前目录：lsjson 无 --recursive 时 Path 只是裸名字，
             //    前端下钻要拿完整远端路径重新请求（parseEntries 内拼接）。
-            $decoded = json_decode(implode("\n", $output), true);
-            if (! is_array($decoded)) {
+            $decoded = $this->decodeLsjson($output);
+            if ($decoded === null) {
                 // 2>&1 混入的 NOTICE 行可能污染 JSON——解析失败时明确报错，
                 // 绝不静默显示「空目录」（那会让用户误以为没有备份）
                 return response()->json([
@@ -196,6 +196,32 @@ class StorageFileController extends Controller
         $errLine = preg_replace('/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+/', '', $errLine ?: '');
         $errLine = preg_replace('/^.*Failed to (create|lsjson|new)[\w ]*:\s*/i', '', $errLine);
         $msg = $errLine !== '' ? $errLine : '连接失败（exit=' . $code . '）';
+        // 目录不存在时补一句人话：多为该位置从未成功备份过（如首次增量备份前的快照根）
+        if (stripos($msg, 'directory not found') !== false) {
+            $msg .= '（目录不存在：该位置可能从未成功备份过）';
+        }
         return mb_substr($msg, 0, 480);
+    }
+
+    /**
+     * 解析 lsjson 输出。exec 用了 2>&1，stderr 的 NOTICE 行会混进 stdout，
+     * 直接 json_decode 整个输出会失败——先按整体解，失败再抽取首个 '[' 到
+     * 末个 ']' 之间的数组体。仍失败返回 null（调用方明确报错，不静默显示空目录）。
+     */
+    private function decodeLsjson(array $output): ?array
+    {
+        $raw = implode("\n", $output);
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        $start = strpos($raw, '[');
+        $end = strrpos($raw, ']');
+        if ($start === false || $end === false || $end <= $start) {
+            return null;
+        }
+        $decoded = json_decode(substr($raw, $start, $end - $start + 1), true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

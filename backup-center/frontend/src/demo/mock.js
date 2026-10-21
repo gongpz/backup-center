@@ -169,6 +169,8 @@ const db = {
   ],
 
   logs: [],
+  // 演示指令登记表：cmdId → { status, output }，供 GET /agent-commands/{id} 轮询
+  commands: {},
   pools: [
     { id: 1, name: '默认资源池（腾讯云 COS）', provider: 'tencent_cos', endpoint: 'cos.ap-guangzhou.myqcloud.com', region: 'ap-guangzhou', bucket: 'bc-resource-1258000000', public_domain: '', public_url_prefix: 'https://bc-resource-1258000000.cos.ap-guangzhou.myqcloud.com', is_agent_mirror: true, status: 'enabled', has_credentials: true, last_test_status: 'ok', remark: 'Agent 二进制国内镜像' },
   ],
@@ -610,6 +612,16 @@ const sanitizeSegment = (name) => {
   return s || 'default'
 }
 
+// 演示指令登记：前端轮询 GET /agent-commands/{id} 消费。
+// 2.5 秒后自动翻 success（轮询 4s 一轮，正好赶上；瞬间完成会显得 Agent 没在干活）
+const registerDemoCommand = (cmdId, output) => {
+  db.commands[cmdId] = { id: cmdId, status: 'dispatched', output: null, error: null }
+  setTimeout(() => {
+    const c = db.commands[cmdId]
+    if (c) { c.status = 'success'; c.output = output }
+  }, 2500)
+}
+
 // 演示节点：文件带 size；目录带 children（递归统计后填 recursiveSize/recursiveCount）
 const demoFile = (name, size, mtime) => ({ name, isDir: false, size, mtime, children: null })
 const demoDir = (name, mtime, children) => ({ name, isDir: true, size: null, mtime, children: children || [] })
@@ -915,6 +927,10 @@ const routes = [
   }],
   ['delete', /^\/websites\/(\d+)$/, (m) => { removeById(db.websites, m[1]); return { message: '已删除' } }],
   ['post', /^\/websites\/(\d+)\/sync-now$/, () => ({ message: '已下发同步指令，最长 60 秒内 Agent 会执行' })],
+  // 指令状态查询（绑定/自主备份/增量备份下发后前端轮询执行结果）
+  ['get', /^\/agent-commands\/(\d+)$/, (m) => ({
+    command: db.commands[m[1]] || { id: Number(m[1]), status: 'success', output: '指令已完成（演示环境）' },
+  })],
   ['post', /^\/websites\/(\d+)\/bind-root$/, (m, p, body) => {
     const w = findById(db.websites, m[1])
     if (!w) return { __error: { status: 404, message: '网站不存在' } }
@@ -928,7 +944,9 @@ const routes = [
     }
     w.web_root = root
     w.root_bound_at = new Date().toISOString()
-    return { message: '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件', command_id: nextId('cmd') }
+    const cmdId = nextId('cmd')
+    registerDemoCommand(cmdId, '已绑定网站根目录（演示环境）')
+    return { message: '已下发绑定指令，最长 60 秒内 Agent 会查找密钥文件', command_id: cmdId }
   }],
   ['post', /^\/websites\/(\d+)\/self-backup$/, (m) => {
     const w = findById(db.websites, m[1])
@@ -944,6 +962,7 @@ const routes = [
     const ts = tsStamp()
     const at = new Date().toISOString()
     const cmdId = nextId('cmd')
+    registerDemoCommand(cmdId, '自主备份完成：已打包网站目录与数据库并上传（演示环境）')
 
     const addSelfLog = (filename, fullPath, size) => {
       const id = nextId('log')
@@ -1003,6 +1022,7 @@ const routes = [
     const ts = tsStamp()
     const at = new Date().toISOString()
     const cmdId = nextId('cmd')
+    registerDemoCommand(cmdId, '增量备份完成：rsync 快照已同步到目标存储（演示环境）')
     // 远端快照目录：<base_path>/<safe>/<stamp>（full_path 不带 bc_ 前缀，remote_path 带 bc_<sid>: 前缀）
     const remoteDir = `${incStorage?.base_path || '/backup'}/${safe}/${ts}`
     const remotePrefix = `bc_${w.incremental_storage_id}:${remoteDir}`

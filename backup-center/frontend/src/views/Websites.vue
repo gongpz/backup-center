@@ -105,8 +105,12 @@ const openBrowse = (row) => {
 // 一键同步：触发所属 Agent 立即扫描 backup_paths，把未上传的文件推到各存储
 const syncingIds = ref(new Set())
 const syncPollTimer = ref(null)
+// 指令结果轮询（自主备份 / 增量备份共用）：每行独立定时器，多行并行互不打断
+const commandPollTimers = new Map()
 onBeforeUnmount(() => {
   if (syncPollTimer.value) { clearInterval(syncPollTimer.value); syncPollTimer.value = null }
+  commandPollTimers.forEach((t) => clearInterval(t))
+  commandPollTimers.clear()
 })
 const syncNow = async (row) => {
   if (syncingIds.value.has(row.id)) return
@@ -149,33 +153,91 @@ const pollSyncResult = (cmdId) => {
   }, 4000)
 }
 
+/* ---------- 指令结果轮询（自主备份 / 增量备份共用） ----------
+ * 背景：这两个按钮此前只 toast「已下发」就再无回音——Agent 侧失败
+ * （rsync 未安装、SSH 连不通、网站根目录不存在、Agent 版本过旧不识别指令等）
+ * 用户完全看不到原因。指令结果后端本来就存着（agent_commands.error），
+ * 这里轮询出来直接展示；轮询期间按钮保持 loading，结束/超时统一清理。 */
+const pollCommandResult = (cmdId, okMsg, failLabel, rowId, busySet) => {
+  if (!cmdId) return
+  const stop = () => {
+    const t = commandPollTimers.get(rowId)
+    if (t) { clearInterval(t); commandPollTimers.delete(rowId) }
+  }
+  stop()   // 同一行重复下发：顶掉旧轮询
+  const deadline = Date.now() + 100000
+  const release = () => {
+    stop()
+    if (busySet) {
+      busySet.value = new Set([...busySet.value].filter((id) => id !== rowId))
+    }
+  }
+  commandPollTimers.set(rowId, setInterval(async () => {
+    let settled = false
+    try {
+      const { command } = await commandsApi.get(cmdId)
+      if (command && (command.status === 'success' || command.status === 'failed')) {
+        settled = true
+        if (command.status === 'success') {
+          ElMessage.success(command.output || okMsg)
+          fetch()
+        } else {
+          ElMessage.error(`${failLabel}失败：${command.error || 'Agent 未返回原因'}`)
+        }
+      }
+    } catch (_) { /* 轮询失败不打断，下一轮再试 */ }
+    if (settled || Date.now() >= deadline) {
+      if (!settled) {
+        // 超时仍未回结果：多为 Agent 离线，或版本过旧（增量指令需 ≥ 0.15.0）
+        ElMessage.warning('指令长时间未返回结果，请检查 Agent 是否在线、版本是否 ≥ 0.15.0')
+      }
+      release()
+    }
+  }, 4000))
+}
+
 // 立即自主备份（P3）：仅 self 来源网站显示；复用 websitesApi.selfBackup 下发指令
 const selfBackingIds = ref(new Set())
 const selfBackupNow = async (row) => {
   if (selfBackingIds.value.has(row.id)) return
   selfBackingIds.value = new Set([...selfBackingIds.value, row.id])
+  let polling = false
   try {
     const res = await websitesApi.selfBackup(row.id)
     ElMessage.success(res.message || '已下发自主备份指令，最长 60 秒内 Agent 会执行')
+    if (res.command_id) {
+      // 轮询指令结果：成败都 toast（失败带 Agent 返回的原因）；轮询期间按钮保持 loading
+      polling = true
+      pollCommandResult(res.command_id, '自主备份完成', '自主备份', row.id, selfBackingIds)
+    }
   } catch (_) { /* interceptor 弹错 */ } finally {
-    const s = new Set(selfBackingIds.value)
-    s.delete(row.id)
-    selfBackingIds.value = s
+    if (!polling) {
+      const s = new Set(selfBackingIds.value)
+      s.delete(row.id)
+      selfBackingIds.value = s
+    }
   }
 }
 
-// 立即增量备份（v1.2.17）：仅 self + incremental 网站显示；镜像 selfBackupNow
+// 立即增量备份（v1.2.17）：仅 self + incremental 网站显示；与自主备份同样轮询指令结果
 const incrementingIds = ref(new Set())
 const incrementalBackupNow = async (row) => {
   if (incrementingIds.value.has(row.id)) return
   incrementingIds.value = new Set([...incrementingIds.value, row.id])
+  let polling = false
   try {
     const res = await websitesApi.incrementalBackup(row.id)
     ElMessage.success(res.message || '已下发增量备份指令，最长 60 秒内 Agent 会执行')
+    if (res.command_id) {
+      polling = true
+      pollCommandResult(res.command_id, '增量备份完成', '增量备份', row.id, incrementingIds)
+    }
   } catch (_) { /* interceptor 弹错 */ } finally {
-    const s = new Set(incrementingIds.value)
-    s.delete(row.id)
-    incrementingIds.value = s
+    if (!polling) {
+      const s = new Set(incrementingIds.value)
+      s.delete(row.id)
+      incrementingIds.value = s
+    }
   }
 }
 

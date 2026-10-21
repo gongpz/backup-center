@@ -419,7 +419,10 @@ class IncrementalBackupTest extends TestCase
     public function test_restore_backups_snapshot_suite_type_label_and_restorable(): void
     {
         $website = $this->makeWebsite($this->agentServer(), Website::BACKUP_SOURCE_EXTERNAL, Website::BACKUP_MODE_FULL, null);
-        $at = now()->subHours(2);
+        // 锚定当天 02:00，不用 now()->subHours(2)：应用时区是 UTC，后者在
+        // UTC 00:00-02:59 之间跑会跨到前一天，与下面默认 now() 的旧文件分成
+        // 两个日期组，assertCount(1) 必炸（CI 每天在这个窗口都会踩）
+        $at = now()->startOfDay()->addHours(2);
 
         // 快照日志：带 batch_code、无上传 → restorable=false；full_path 是远端快照目录
         $snap = BackupLog::create([
