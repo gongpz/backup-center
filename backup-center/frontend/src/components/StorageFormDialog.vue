@@ -293,7 +293,6 @@ const onSubmit = () => {
               <span class="sf-sublabel">强制备份</span>
               <el-switch v-model="form.is_mandatory" />
             </div>
-            <p class="sf-hint">开启后，<b>所有</b>网站的备份都会自动推送到此存储（不用挨个网站配）</p>
           </el-form-item>
 
           <el-form-item label="管理面板 URL" prop="access_url">
@@ -563,10 +562,6 @@ const onSubmit = () => {
   font-size: 12px;
   color: var(--bc-text-secondary);
   line-height: 1.6;
-}
-.sf-hint b {
-  color: var(--bc-danger);
-  font-weight: 500;
 }
 
 /* 窄视口兜底：单列堆叠，避免右列被挤压；类型卡片过窄时改 2×2 */
