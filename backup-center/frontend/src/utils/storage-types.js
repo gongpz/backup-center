@@ -62,15 +62,16 @@ export const normalizeEncryption = (enc) => ({
 export const typeFields = {
   sftp: [
     { key: 'host',        label: '主机', type: 'text',     required: true, placeholder: 'u12345.your-storagebox.de' },
-    { key: 'port',        label: '端口', type: 'number',   required: false, default: 22, placeholder: '22 (HostBrr: 23)' },
-    { key: 'user',        label: '用户名', type: 'text',   required: true, placeholder: 'u12345' },
+    // row 相同的连续字段在表单里合并为一行（用户名在前、端口在后）
+    { key: 'user',        label: '用户名', type: 'text',   required: true, placeholder: 'u12345', row: 'user-port' },
+    { key: 'port',        label: '端口', type: 'number',   required: false, default: 22, placeholder: '22 (HostBrr: 23)', row: 'user-port' },
     { key: 'password',    label: '密码', type: 'password', required: false, placeholder: '密码或 SSH 私钥二选一' },
     { key: 'private_key', label: 'SSH 私钥', type: 'textarea', required: false, placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----' },
   ],
   ftp: [
     { key: 'host',                 label: '主机',   type: 'text',     required: true, placeholder: 'ftpX.hostypanel.com 或 box.example.com' },
-    { key: 'port',                 label: '端口',   type: 'number',   required: false, default: 21, placeholder: '21 (FTPS 通常 21 或 990)' },
-    { key: 'user',                 label: '用户名', type: 'text',     required: true },
+    { key: 'user',                 label: '用户名', type: 'text',     required: true, row: 'user-port' },
+    { key: 'port',                 label: '端口',   type: 'number',   required: false, default: 21, placeholder: '21 (FTPS 通常 21 或 990)', row: 'user-port' },
     { key: 'password',             label: '密码',   type: 'password', required: true },
     { key: 'tls',                  label: 'FTPS（Implicit TLS）', type: 'select', required: false, default: false,
       options: [

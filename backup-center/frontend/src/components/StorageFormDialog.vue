@@ -64,6 +64,17 @@ const decodeQuota = (bytes) => {
 
 const currentFields = computed(() => typeFields[form.type] || [])
 
+// 同行字段组：storage-types.js 中 row 相同的连续字段合并为一行（用户名 + 端口），其余单字段各自成行
+const fieldRows = computed(() => {
+  const rows = []
+  for (const f of currentFields.value) {
+    const last = rows[rows.length - 1]
+    if (f.row && last && last.row === f.row) last.fields.push(f)
+    else rows.push({ row: f.row || null, fields: [f] })
+  }
+  return rows
+})
+
 const encryptionField = (key) => encryptionFields.find((f) => f.key === key)
 const keyModeOptions = computed(() => encryptionField('key_mode')?.options || [])
 const filenameEncryptionOptions = computed(() => encryptionField('filename_encryption')?.options || [])
@@ -308,38 +319,46 @@ const onSubmit = () => {
         <div class="sf-col">
           <div class="sf-col-title">连接与加密</div>
 
-          <!-- 动态字段（随类型变化） -->
-          <el-form-item
-            v-for="f in currentFields"
-            :key="f.key"
-            :label="f.label"
-            :prop="`config.${f.key}`"
+          <!-- 动态字段（随类型变化）：row 相同的连续字段合并为一行（用户名 + 端口） -->
+          <div
+            v-for="r in fieldRows"
+            :key="r.row || r.fields[0].key"
+            class="sf-field-row"
+            :class="{ 'is-pair': r.fields.length > 1 }"
           >
-            <el-input
-              v-if="f.type === 'text' || f.type === 'password'"
-              v-model="form.config[f.key]"
-              :type="f.type === 'password' ? 'password' : 'text'"
-              :placeholder="f.placeholder"
-              :show-password="f.type === 'password'"
-            />
-            <el-input-number
-              v-else-if="f.type === 'number'"
-              v-model="form.config[f.key]"
-              :min="1"
-              :max="65535"
-              style="width: 160px"
-            />
-            <el-input
-              v-else-if="f.type === 'textarea'"
-              v-model="form.config[f.key]"
-              type="textarea"
-              :rows="4"
-              :placeholder="f.placeholder"
-            />
-            <el-select v-else-if="f.type === 'select'" v-model="form.config[f.key]" style="width: 100%">
-              <el-option v-for="o in f.options" :key="String(o.value)" :value="o.value" :label="o.label" />
-            </el-select>
-          </el-form-item>
+            <el-form-item
+              v-for="f in r.fields"
+              :key="f.key"
+              :label="f.label"
+              :prop="`config.${f.key}`"
+            >
+              <el-input
+                v-if="f.type === 'text' || f.type === 'password'"
+                v-model="form.config[f.key]"
+                :type="f.type === 'password' ? 'password' : 'text'"
+                :placeholder="f.placeholder"
+                :show-password="f.type === 'password'"
+              />
+              <el-input-number
+                v-else-if="f.type === 'number'"
+                v-model="form.config[f.key]"
+                :min="1"
+                :max="65535"
+                :controls="false"
+                style="width: 100%"
+              />
+              <el-input
+                v-else-if="f.type === 'textarea'"
+                v-model="form.config[f.key]"
+                type="textarea"
+                :rows="4"
+                :placeholder="f.placeholder"
+              />
+              <el-select v-else-if="f.type === 'select'" v-model="form.config[f.key]" style="width: 100%">
+                <el-option v-for="o in f.options" :key="String(o.value)" :value="o.value" :label="o.label" />
+              </el-select>
+            </el-form-item>
+          </div>
 
           <!-- 备份加密（所有类型通用，rclone crypt 包裹层） -->
           <el-form-item label="备份加密">
@@ -536,6 +555,14 @@ const onSubmit = () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* 同行字段组（storage-types.js 的 row 标记）：单字段组保持块级；
+   多字段组（用户名 + 端口）双列网格——用户名在前占宽、端口在后定宽 */
+.sf-field-row { display: block; }
+.sf-field-row.is-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  column-gap: 16px;
 }
 /* 状态 + 强制备份同行 */
 .sf-status-row {
