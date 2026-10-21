@@ -590,7 +590,23 @@ html.dark .el-dialog__header { background: rgba(51, 180, 208, .12); }
   transition: background-color var(--bc-dur) var(--bc-ease);
 }
 .el-dialog__headerbtn:hover { background: var(--bc-bg-hover); }
-/* 对话框内的表单：max-width 520 居中，形成对称的左右留白 */
+/* ---------- 弹窗垂直定位（全局）----------
+   EP 默认 margin-top:15vh；本站表单弹窗普遍较高（横版表单 700px+），15vh 起排
+   会把底部顶出视口，观感「偏下」，且要滚动遮罩才看得到底部按钮。
+   改为 8vh 起排 + max-height 兜底：内容超高时 __body 内部滚动，头/脚常驻。 */
+.el-dialog {
+  --el-dialog-margin-top: 8vh;
+  max-height: calc(100vh - 8vh - 60px);
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* 对话框内的表单：max-width 520 居中，形成对称的左右留白（横版宽弹窗在组件内用
+   .el-dialog .xx-form.xx-form 提高特异性解除，见 WebsiteFormDialog/StorageFormDialog） */
 .el-dialog .el-form { max-width: 520px; margin: 0 auto; }
 .el-dialog .el-form-item__label { padding-right: 12px; }
 .el-overlay { backdrop-filter: blur(2px); }

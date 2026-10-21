@@ -288,7 +288,7 @@ const onSubmit = () => {
   <el-dialog
     :model-value="modelValue"
     :title="title"
-    width="960px"
+    width="1000px"
     :close-on-click-modal="false"
     @update:model-value="(v) => emit('update:modelValue', v)"
   >
@@ -431,9 +431,11 @@ const onSubmit = () => {
               :class="{ active: backupModeKey === mc.key }"
               @click="selectMode(mc.key)"
             >
-              <span class="mc-check"><el-icon><Check /></el-icon></span>
-              <span class="mc-icon"><el-icon><component :is="mc.icon" /></el-icon></span>
-              <span class="mc-name">{{ mc.name }}</span>
+              <span class="mc-head">
+                <span class="mc-icon"><el-icon><component :is="mc.icon" /></el-icon></span>
+                <span class="mc-name">{{ mc.name }}</span>
+                <span class="mc-check"><el-icon><Check /></el-icon></span>
+              </span>
               <span class="mc-method">{{ mc.method }}</span>
               <span class="mc-desc">{{ mc.desc }}</span>
             </button>
@@ -505,9 +507,9 @@ const onSubmit = () => {
                     <el-input v-model.number="form.db_port" placeholder="端口" style="width: 110px" />
                   </div>
                   <div class="db-cfg-row">
-                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 200px" />
-                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 160px" />
-                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 220px" />
+                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 190px" />
+                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 150px" />
+                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 200px" />
                   </div>
                   <p class="mp-hint">
                     仅用于 Agent 在服务器上执行 <code>mysqldump</code> / <code>pg_dump</code>；密码经加密存储，列表与接口均不回传明文。
@@ -548,9 +550,9 @@ const onSubmit = () => {
                     <el-input v-model.number="form.db_port" placeholder="端口" style="width: 110px" />
                   </div>
                   <div class="db-cfg-row">
-                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 200px" />
-                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 160px" />
-                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 220px" />
+                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 190px" />
+                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 150px" />
+                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 200px" />
                   </div>
                   <p class="mp-hint">
                     增量快照只传文件变化部分；数据库仍每次全量导出并随快照存档。
@@ -613,13 +615,13 @@ const onSubmit = () => {
 .el-dialog .wf-form.wf-form { max-width: none; margin: 0; }
 .wf-grid {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
 /* 窄视口兜底：dialog 被全局 max-width:calc(100vw-48px) 压窄后，双列会重新出现右列挤压，
    低于断点改为单列堆叠（模式卡三张仍横排，只是移到基本信息下方） */
-@media (max-width: 920px) {
+@media (max-width: 890px) {
   .wf-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .wf-col { min-width: 0; }
@@ -701,9 +703,7 @@ const onSubmit = () => {
   box-shadow: 0 0 0 1px var(--bc-primary);
 }
 .mc-check {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -720,14 +720,23 @@ const onSubmit = () => {
   border-color: var(--bc-primary);
   color: #fff;
 }
+.mc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
 .mc-icon {
   color: var(--bc-text-secondary);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
-  margin-bottom: 4px;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 .mode-card.active .mc-icon { color: var(--bc-primary); }
 .mc-name {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--bc-text-primary);

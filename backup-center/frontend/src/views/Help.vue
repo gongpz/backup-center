@@ -165,6 +165,81 @@ const auth = useAuthStore()
     </div>
 
     <el-tabs v-model="activeTab" class="help-tabs">
+      <!-- ============ 关于项目 ============ -->
+      <el-tab-pane label="关于项目" name="about">
+        <div class="tab-intro">
+          <b>Backup Center</b> 是一套自托管的服务器备份管理中心：把散在各处的网站与数据库备份，统一收集到你自己掌控的存储里，出事了能按次找回、一键恢复。
+        </div>
+
+        <el-collapse>
+          <el-collapse-item name="what">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">解决什么问题</span>
+                <span class="chip chip-blue">定位</span>
+              </div>
+            </template>
+            <p class="intro">
+              服务器上的备份往往靠面板或脚本各管各的：散落多台机器、格式不一、过期不清理，真出事了找不到是哪一份、也不敢乱恢复。
+              <br /><br />
+              Backup Center 把这件事统一管起来：<b>自动备份 → 多存储冗余 → 到期清理 → 按次整合、可挑可恢复</b>。整套系统部署在你自己控制的服务器上，备份数据只进你自己指定的存储，不经过任何第三方。
+            </p>
+          </el-collapse-item>
+
+          <el-collapse-item name="arch">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">系统组成</span>
+                <span class="chip chip-purple">架构</span>
+              </div>
+            </template>
+            <p class="intro">
+              <b>Center（管理端）</b>：部署在你的一台 VPS 上，也就是你现在使用的这个 Web 界面。负责任务调度、存储管理、加密密钥托管与恢复编排。
+              <br /><br />
+              <b>Agent（被控端）</b>：跑在每台被监控服务器上的 Go 单二进制程序（约 5MB、内存占用低），由 Center 下发指令，在目标机器上完成目录扫描、打包压缩、数据库导出与 rsync 快照。
+              <br /><br />
+              <b>rclone（传输层）</b>：Center 与 Agent 均内置，负责向 SFTP / FTP / WebDAV / S3 等存储传输文件，并可叠加 rclone crypt 加密层——云端只存密文，恢复时自动解密。
+            </p>
+          </el-collapse-item>
+
+          <el-collapse-item name="modes">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">三种备份模式</span>
+                <span class="chip chip-sftp">核心概念</span>
+              </div>
+            </template>
+            <table class="kv-table">
+              <tr>
+                <td class="k">轻便模式</td>
+                <td class="v">外部压缩：监控服务器上已有的备份产物（面板 / 脚本生成），发现新文件即上传，无需绑定根目录</td>
+              </tr>
+              <tr>
+                <td class="k">高级模式</td>
+                <td class="v">自主压缩：由 Agent 直接在服务器上打包网站目录、导出数据库后上传，需绑定网站根目录</td>
+              </tr>
+              <tr>
+                <td class="k">增量模式</td>
+                <td class="v">rsync 硬链快照到 VPS，仅传输变化部分——空间占用接近一份全量，传输量只有增量，需绑定网站根目录</td>
+              </tr>
+            </table>
+            <p class="tip">每个网站三选一，在「添加 / 编辑网站」弹窗顶部的模式卡片中切换。</p>
+          </el-collapse-item>
+
+          <el-collapse-item name="who">
+            <template #title>
+              <div class="col-title">
+                <span class="strong">适用人群</span>
+                <span class="chip chip-blue">场景</span>
+              </div>
+            </template>
+            <p class="intro">
+              运维个人站点与中小团队服务的站长、运维：手里有几台到几十台服务器，希望备份这件事<b>自动跑、看得见、找得回、不浪费</b>——增量模式省流量与存储，多存储冗余防单点，恢复前自动预备份防手滑。
+            </p>
+          </el-collapse-item>
+        </el-collapse>
+      </el-tab-pane>
+
       <!-- ============ 存储配置 ============ -->
       <el-tab-pane label="存储配置" name="storage">
         <div class="tab-intro">

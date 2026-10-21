@@ -242,9 +242,11 @@ const onSubmit = () => {
               :title="isEdit ? '存储类型创建后不可修改' : ''"
               @click="form.type = t.value"
             >
-              <span class="tc-check"><el-icon><Check /></el-icon></span>
-              <span class="tc-icon"><el-icon><component :is="typeIcons[t.icon]" /></el-icon></span>
-              <span class="tc-name">{{ t.label }}</span>
+              <span class="tc-head">
+                <span class="tc-icon"><el-icon><component :is="typeIcons[t.icon]" /></el-icon></span>
+                <span class="tc-name">{{ t.label }}</span>
+                <span class="tc-check"><el-icon><Check /></el-icon></span>
+              </span>
               <span class="tc-desc">{{ typeDescs[t.value] }}</span>
             </button>
           </div>
@@ -281,18 +283,17 @@ const onSubmit = () => {
             </div>
           </el-form-item>
 
-          <el-form-item label="状态" prop="status">
-            <el-radio-group v-model="form.status">
-              <el-radio value="enabled">启用</el-radio>
-              <el-radio value="disabled">停用</el-radio>
-            </el-radio-group>
-          </el-form-item>
-
-          <el-form-item label="强制备份" prop="is_mandatory">
-            <div class="sf-stack">
+          <!-- 状态与强制备份同行：两者都是开关型短选项，合并一行节省纵向空间 -->
+          <el-form-item label="状态">
+            <div class="sf-status-row">
+              <el-radio-group v-model="form.status">
+                <el-radio value="enabled">启用</el-radio>
+                <el-radio value="disabled">停用</el-radio>
+              </el-radio-group>
+              <span class="sf-sublabel">强制备份</span>
               <el-switch v-model="form.is_mandatory" />
-              <span class="sf-hint">开启后，<b>所有</b>网站的备份都会自动推送到此存储（不用挨个网站配）</span>
             </div>
+            <p class="sf-hint">开启后，<b>所有</b>网站的备份都会自动推送到此存储（不用挨个网站配）</p>
           </el-form-item>
 
           <el-form-item label="管理面板 URL" prop="access_url">
@@ -487,9 +488,7 @@ const onSubmit = () => {
   opacity: .72;
 }
 .tc-check {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -506,13 +505,22 @@ const onSubmit = () => {
   border-color: var(--tc);
   color: #fff;
 }
+.tc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
 .tc-icon {
   color: var(--tc);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
-  margin-bottom: 4px;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 .tc-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--bc-text-primary);
@@ -529,6 +537,20 @@ const onSubmit = () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* 状态 + 强制备份同行 */
+.sf-status-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: nowrap;
+}
+.sf-status-row :deep(.el-radio) { margin-right: 12px; }
+.sf-sublabel {
+  font-size: 13px;
+  color: var(--bc-text-primary);
+  flex-shrink: 0;
 }
 .sf-quota-row {
   display: flex;
