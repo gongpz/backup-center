@@ -505,10 +505,18 @@ cat /etc/backup-agent/config.json</pre>
       <!-- ============ 版本特性 ============ -->
       <el-tab-pane label="版本特性" name="whatsnew">
         <div class="tab-intro">
-          当前版本 <b>v1.2.20</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
+          当前版本 <b>v1.2.21</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
         </div>
 
         <el-collapse>
+          <el-collapse-item name="focus-polish" title="输入框聚焦与配对细化（v1.2.21）">
+            <p class="intro">
+              输入框、多行框与下拉框聚焦时不再出现彩色聚焦框——原先的主色描边与焦点环已整体移除，聚焦后保持与默认一致的 1px 描边，不变色、不加粗，输入位置由光标本身指示；必填校验的红色错误描边保留。
+              <br /><br />
+              存储弹窗配对字段宽度重平衡：主机 216→176px、用户名 203→163px，端口与密码 162→202px，同行两个输入框间距保持 54px，凭据区更紧凑。
+            </p>
+          </el-collapse-item>
+
           <el-collapse-item name="storage-polish" title="存储弹窗细节打磨（v1.2.20）">
             <p class="intro">
               同行配对字段（「主机 + 端口」「用户名 + 密码」）标签改为自动宽度，输入框加宽至 152–216px，两个输入框之间的间距由 128px 收窄到 54px，凭据区更紧凑。
