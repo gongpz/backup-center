@@ -560,11 +560,12 @@ const onSubmit = () => {
 /* 同行字段组（storage-types.js 的 row 标记）：单字段组保持块级；
    多字段组（主机+端口 / 用户名+密码）双列网格 + 标签自动宽度——
    固定 112px 标签列会把两个输入框隔开 128px 且各自只剩 ~110px 宽；
-   标签紧凑内联后输入框约 226px/162px，框间距降到 ~54px */
+   标签紧凑内联后框间距降到 ~54px；第二列 240px（端口/密码约 202px），
+   主机/用户名输入框收窄到约 176px/163px（用户反馈便短一些） */
 .sf-field-row { display: block; }
 .sf-field-row.is-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
+  grid-template-columns: minmax(0, 1fr) 240px;
   column-gap: 16px;
 }
 /* 状态 + 强制备份同行 */

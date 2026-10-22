@@ -490,15 +490,21 @@ a { color: inherit; text-decoration: none; }
 /* 输入类控件聚焦不画框（用户明确要求"鼠标选中后不要这个蓝色的框"）：
    EP 全局 :focus-visible 是主色 outline + outline-offset:2px，上面的 a11y 环对输入框也过重，
    两条都去掉——光标本身已指示输入位置；特异性 (0,2,0) 稳压上方同特异性容器规则，须放其后 */
-.el-input__inner:focus-visible,
-.el-textarea__inner:focus-visible {
+/* 内层 input 自身无描边（描边在 wrapper 的 box-shadow 上），只杀全局 a11y 3px 环 */
+.el-input__inner:focus-visible {
   outline: none;
   box-shadow: none;
 }
+/* textarea 的描边在自身 box-shadow 上：只去 outline，描边交给 EP :focus 规则
+   （变量已改为默认边框色，聚焦即默认 1px 灰描边，不变色不加粗） */
+.el-textarea__inner:focus-visible {
+  outline: none;
+}
 /* select 聚焦环同理：EP 的 .is-focused 是 1px 主色 inset（直连 --el-color-primary，
-   不走上面的输入框变量）；非过滤型 select 的隐藏 input 带 a11y 3px 影但父层 opacity:0 不可见，一并清掉 */
+   不走上面的输入框变量），显式改回其默认描边色；非过滤型 select 的隐藏 input
+   带 a11y 3px 影但父层 opacity:0 不可见，一并清掉 */
 .el-select__wrapper.is-focused {
-  box-shadow: none;
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
 }
 .el-select__input:focus-visible {
   outline: none;
@@ -552,9 +558,10 @@ a { color: inherit; text-decoration: none; }
   --el-input-bg-color: var(--bc-bg-card);
   --el-input-border-color: var(--bc-border);
   --el-input-hover-border-color: var(--bc-border-strong);
-  /* 聚焦环整体去掉：EP 的 is-focus 是 box-shadow 0 0 0 1px <此变量> inset，
-     用户明确要求输入时不再显示该提示框（此前主色蓝、后改中性灰均被否）——transparent 后不可见 */
-  --el-input-focus-border-color: transparent;
+  /* 聚焦即默认边框：EP 2.8 的 is-focus/:focus 用此变量画 1px inset 描边（替代基础描边），
+     用户要求聚焦时保持默认边框样式——不变色（曾是主色蓝）、不加粗（仍 1px 灰）；
+     注意不能设 transparent：那会连基础描边一起变没（聚焦时边框消失） */
+  --el-input-focus-border-color: var(--el-input-border-color);
   --el-input-text-color: var(--bc-text-regular);
   --el-input-placeholder-color: var(--bc-text-placeholder);
   --el-input-border-radius: var(--bc-radius);
