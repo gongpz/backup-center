@@ -487,6 +487,23 @@ a { color: inherit; text-decoration: none; }
 .storage-pool .el-button--danger:focus-visible {
   box-shadow: var(--bc-ring-a11y-inset-danger);
 }
+/* 输入类控件聚焦不画框（用户明确要求"鼠标选中后不要这个蓝色的框"）：
+   EP 全局 :focus-visible 是主色 outline + outline-offset:2px，上面的 a11y 环对输入框也过重，
+   两条都去掉——光标本身已指示输入位置；特异性 (0,2,0) 稳压上方同特异性容器规则，须放其后 */
+.el-input__inner:focus-visible,
+.el-textarea__inner:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* select 聚焦环同理：EP 的 .is-focused 是 1px 主色 inset（直连 --el-color-primary，
+   不走上面的输入框变量）；非过滤型 select 的隐藏 input 带 a11y 3px 影但父层 opacity:0 不可见，一并清掉 */
+.el-select__wrapper.is-focused {
+  box-shadow: none;
+}
+.el-select__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 .el-button.is-disabled, .el-button.is-disabled:hover { cursor: not-allowed; }
 
 /* ---------- 表格 ---------- */
