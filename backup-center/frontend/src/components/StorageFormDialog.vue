@@ -331,6 +331,7 @@ const onSubmit = () => {
               :key="f.key"
               :label="f.label"
               :prop="`config.${f.key}`"
+              :label-width="r.fields.length > 1 ? 'auto' : undefined"
             >
               <el-input
                 v-if="f.type === 'text' || f.type === 'password'"
@@ -557,11 +558,13 @@ const onSubmit = () => {
   gap: 4px;
 }
 /* 同行字段组（storage-types.js 的 row 标记）：单字段组保持块级；
-   多字段组双列网格——前者占宽（主机/用户名）、后者定宽（端口/密码） */
+   多字段组（主机+端口 / 用户名+密码）双列网格 + 标签自动宽度——
+   固定 112px 标签列会把两个输入框隔开 128px 且各自只剩 ~110px 宽；
+   标签紧凑内联后输入框约 226px/162px，框间距降到 ~54px */
 .sf-field-row { display: block; }
 .sf-field-row.is-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1fr) 200px;
   column-gap: 16px;
 }
 /* 状态 + 强制备份同行 */
