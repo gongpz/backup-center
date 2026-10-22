@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -43,7 +44,15 @@ import (
 // 0.15.2：保留期清理（cleanup_retention）的 rclone 调用加单条超时（cleanupRcloneTimeout=10m），
 //
 //	后端卡死不再永久挂起清理指令与 Agent 命令循环；超时该条按失败保留 db 行下轮重派。
-const AgentVersion = "0.15.2"
+//
+// 0.15.3：修复高级恢复「网站目录」解压覆盖必然失败，
+//
+//	去掉 tar --unlink-first（-U 会对每个目录也尝试 unlink，非空目录必然
+//	"Cannot unlink: Directory not empty" → tar exit 2），改为普通覆盖解压；
+//	并在解压前 chattr -i 解除 .user.ini 等不可变文件属性（宝塔等面板会加
+//	chattr +i，tar 覆盖写会 EPERM "Operation not permitted"），解压后按原样
+//	chattr +i 恢复。恢复结果上报不再静默吞错，失败原因截断到 1800 字符。
+const AgentVersion = "0.15.3"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -496,18 +505,30 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 		output, err := performRestore(cmd, c, scn, up)
 		if err != nil {
 			slog.Warn("恢复失败", "err", err, "id", cmd.ID)
-			_ = c.CommandResult(&client.CommandResultRequest{
+			// tar 失败可能输出成百上千行，截断到 1800 字符（与 performSnapshotRestore 同风格）
+			// 再上报，避免超长错误串影响请求。
+			msg := err.Error()
+			if len(msg) > 1800 {
+				msg = msg[:1800] + "…"
+			}
+			// 上报失败必须记录：否则 Center 侧该指令会永远停在 dispatched，
+			// 前端 /api/restore/status 每 4 秒轮询导致界面无限转圈。
+			if rerr := c.CommandResult(&client.CommandResultRequest{
 				CommandID: cmd.ID,
 				Status:    "failed",
-				Error:     err.Error(),
-			})
+				Error:     msg,
+			}); rerr != nil {
+				slog.Warn("恢复失败结果上报失败（Center 侧指令可能永久停留 dispatched）", "err", rerr, "id", cmd.ID)
+			}
 			return
 		}
-		_ = c.CommandResult(&client.CommandResultRequest{
+		if rerr := c.CommandResult(&client.CommandResultRequest{
 			CommandID: cmd.ID,
 			Status:    "success",
 			Output:    output,
-		})
+		}); rerr != nil {
+			slog.Warn("恢复成功结果上报失败（Center 侧指令可能永久停留 dispatched）", "err", rerr, "id", cmd.ID)
+		}
 
 	case "bind_root":
 		// 根目录绑定：校验/搜索密钥文件(.bc-bind-<token>)，回传网站根目录给 Center
@@ -892,17 +913,88 @@ func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w c
 		CommandID: cmd.ID,
 		Output:    "[解压] 正在覆盖网站根目录…",
 	})
-	// --unlink-first（-U）：解压每个文件前先删除已存在的同名路径。
-	// 宝塔等面板会在 web_root 留 .user.ini（软链或占位文件），tar 默认解压遇到已存在的
-	// 符号链接会报 "Cannot open: File exists" 并 exit 2——其他文件其实已逐个解压成功，
-	// 但非零退出码让整个恢复被误判为失败。-U 先 unlink 再创建，彻底消除 EEXIST。
-	xc := exec.Command("tar", "--unlink-first", "-xzf", dest, "-C", parent)
+	// 覆盖解压前先解除 web_root 下所有 immutable（chattr +i）属性：宝塔等面板会给
+	// .user.ini 打 +i，tar 覆盖写该文件会 EPERM(Operation not permitted) 导致整包失败。
+	// 解压成功后再按原样 chattr +i 恢复回去（失败则保持解除状态，让提示里的手动回滚
+	// tar -xzf 能正常覆盖 .user.ini）。
+	immutablePaths := listImmutablePaths(filepath.Join(parent, base))
+	if len(immutablePaths) > 0 {
+		slog.Info("解除 immutable 属性以允许覆盖解压", "count", len(immutablePaths), "id", cmd.ID)
+		for _, p := range immutablePaths {
+			chattrToggle(p, false)
+		}
+	}
+
+	// 不能用 --unlink-first：-U 会对每一个目录也尝试 unlink，而非空目录无法 unlink →
+	// "Cannot unlink: Directory not empty"，tar 以 exit 2 失败。普通 tar 覆盖解压本身
+	// 就能覆盖同名文件/目录，.user.ini 的写权限问题已由上面的 chattr 解除解决。
+	xc := exec.Command("tar", "-xzf", dest, "-C", parent)
 	var xerr strings.Builder
 	xc.Stderr = &xerr
 	if err := xc.Run(); err != nil {
 		return bakPath, fmt.Errorf("网站目录解压覆盖失败: %v (%s)；可手动回滚: tar -xzf %s -C %s", err, strings.TrimSpace(xerr.String()), bakPath, parent)
 	}
+	// 解压成功：把之前解除的 immutable 属性按原样恢复回去
+	for _, p := range immutablePaths {
+		chattrToggle(p, true)
+	}
 	return bakPath, nil
+}
+
+// listImmutablePaths 列出 root 下所有带 immutable（不可变）属性的路径（文件/目录）。
+// 用 lsattr -R 扫描，输出形如 "----i---------e------- /abs/path"；属性串含 i（文件）
+// 或 I（目录，即 lsattr 对 immutable 目录的显示形式）即为不可变。lsattr 的 -R 输出
+// 路径是「入参 + 相对子路径」，入参为绝对路径时输出的也是绝对路径。
+// 任何异常（lsattr 不存在、文件系统不支持属性、部分条目无权限等）都忽略：只返回已解析
+// 到的部分，绝不因为属性探测失败而让恢复流程失败。
+func listImmutablePaths(root string) []string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = root
+	}
+	cmd := exec.Command("lsattr", "-R", abs)
+	var out strings.Builder
+	cmd.Stdout = &out
+	// stderr 丢弃并忽略退出码：lsattr 可能因个别条目无权限返回非 0，但有效输出仍可用
+	_ = cmd.Run()
+	return parseImmutablePaths(out.String(), abs)
+}
+
+// parseImmutablePaths 从 lsattr -R 的输出中解析出所有带 immutable 属性的路径。
+// base 用于把相对路径补成绝对路径。
+// lsattr -R 是深度优先输出，父目录行一定出现在其子项之前，因此结果天然是「先父后子」：
+// 解除属性时父目录先解除，子项的 chattr 才不会因父目录仍不可变而失败。
+func parseImmutablePaths(out string, base string) []string {
+	var res []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		sp := strings.IndexAny(line, " \t")
+		if sp <= 0 {
+			continue
+		}
+		attrs, p := line[:sp], strings.TrimLeft(line[sp:], " \t")
+		if p == "" || !strings.ContainsAny(attrs, "iI") {
+			continue
+		}
+		// lsattr 输出的始终是 POSIX 路径，故用 path 包（非 filepath）判断/拼接绝对路径
+		if !path.IsAbs(p) {
+			p = path.Join(base, p)
+		}
+		res = append(res, p)
+	}
+	return res
+}
+
+// chattrToggle 设置(+i)/取消(-i) 指定路径的 immutable 属性。
+// 失败一律忽略：文件已不存在、文件系统不支持属性、权限不足等都不应导致恢复失败。
+func chattrToggle(path string, immutable bool) {
+	flag := "-i"
+	if immutable {
+		flag = "+i"
+	}
+	cmd := exec.Command("chattr", flag, path)
+	// stderr 丢弃
+	_ = cmd.Run()
 }
 
 // performAdvancedDBRestore 对 advanced 模式的数据库归档执行"预备份(dump) + 解压 + DROP/CREATE + 导入"。
