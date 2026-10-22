@@ -8,8 +8,17 @@ const props = defineProps({
   storageId: { type: Number, default: null },
   // 选填：传了服务端直达该网站的增量快照根（ Websites.vue 增量站入口用）
   websiteId: { type: Number, default: null },
+  // 选填：表单已填的目录（如 目标路径），打开时直接定位到该文件夹
+  initialPath: { type: String, default: '' },
+  // 选填：true 时底部显示「选择此目录」，供表单回填目录
+  selectable: { type: Boolean, default: false },
+  // 选填：预览态（新建存储尚未保存，无 storageId）。传 true 时改用 previewFiles，
+  // 用 previewStorage 里的 type/config/base_path 直接列目录
+  preview: { type: Boolean, default: false },
+  // 预览态的存储快照：{ type, config, base_path }
+  previewStorage: { type: Object, default: null },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'select'])
 
 const loading = ref(false)
 // null = 首次打开（带 website_id 让服务端解析初始路径）；string = 进入指定目录
@@ -27,10 +36,21 @@ const load = async () => {
   errorMsg.value = ''
   result.value = null
   try {
-    const params = {}
-    if (navPath.value) params.path = navPath.value
-    else if (props.websiteId) params.website_id = props.websiteId
-    const res = await storagesApi.browseFiles(props.storageId, params)
+    let res
+    // 预览态（新建存储，无 storageId）：直接按提交的快照列目录
+    if (props.preview && ! props.storageId) {
+      res = await storagesApi.previewFiles({
+        type: props.previewStorage?.type,
+        config: props.previewStorage?.config || {},
+        base_path: props.previewStorage?.base_path || '',
+        path: navPath.value || '',
+      })
+    } else {
+      const params = {}
+      if (navPath.value) params.path = navPath.value
+      else if (props.websiteId) params.website_id = props.websiteId
+      res = await storagesApi.browseFiles(props.storageId, params)
+    }
     if (res?.ok) {
       result.value = res
     } else {
@@ -47,12 +67,20 @@ const load = async () => {
 // 进入子目录 / 面包屑回跳：带新路径重新拉取
 const go = (p) => { navPath.value = p || null; load() }
 
-// 每次打开都重置回初始路径（website_id 场景 = 该站快照根），避免残留上次浏览位置
+// 每次打开都重置：initialPath 非空直接定位到该文件夹（表单回填场景），
+// 否则回落服务端 base_path / website 增量快照根，避免残留上次浏览位置
 watch(() => props.modelValue, (v) => {
   if (!v) return
-  navPath.value = null
+  navPath.value = props.initialPath ? props.initialPath : null
   load()
 })
+
+// 选择当前目录回填表单：取服务端返回的当前目录（下钻后随之更新）
+const onSelect = () => {
+  if (!result.value) return
+  emit('select', result.value.path)
+  emit('update:modelValue', false)
+}
 
 /* ---------- 面包屑 ---------- */
 const rootPath = computed(() => storageMeta.value?.base_path || '')
@@ -174,7 +202,11 @@ const fmtModified = (iso) => {
     </el-table>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">关闭</el-button>
+      <template v-if="selectable">
+        <el-button type="primary" :disabled="!result" @click="onSelect">选择此目录</el-button>
+        <el-button @click="emit('update:modelValue', false)">取消</el-button>
+      </template>
+      <el-button v-else @click="emit('update:modelValue', false)">关闭</el-button>
     </template>
   </el-dialog>
 </template>

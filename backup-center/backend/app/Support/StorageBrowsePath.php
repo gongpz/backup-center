@@ -84,9 +84,9 @@ class StorageBrowsePath
      *  S3 加密：  bc_<id>_c:<path>（bucket 已在 crypt section 的 remote 里）
      *  其余：     bc_<id>:<path> / bc_<id>_c:<path>
      */
-    public static function target(Storage $storage, string $path): string
+    public static function target(Storage $storage, string $path, ?string $remoteName = null): string
     {
-        $remote = 'bc_' . $storage->id;
+        $remote = $remoteName ?? ('bc_' . $storage->id);
 
         $enc = $storage->config['encryption'] ?? [];
         $encrypted = ! empty($enc['enabled']) && ($enc['key_mode'] ?? 'center') === 'center';

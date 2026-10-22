@@ -9,6 +9,7 @@ use App\Services\RcloneConfBuilder;
 use App\Support\StorageBrowsePath;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * 存储文件浏览（只读）：Center 侧直连 rclone 列出备份目标上的文件 + 递归空间用量。
@@ -133,6 +134,136 @@ class StorageFileController extends Controller
             ]);
         } finally {
             // 10) 统一清理 conf + SSH 私钥临时文件
+            foreach ($tempFiles as $f) {
+                if ($f && file_exists($f)) {
+                    @unlink($f);
+                }
+            }
+        }
+    }
+
+    /**
+     * POST /api/storages/preview-files
+     *
+     * 未保存（新建态）存储的目录预览：用前端提交的 type/config/base_path 在内存里
+     * 构造一个临时 Storage（不落库），复用与 index() 完全相同的 rclone 列目录流程。
+     * 用途：新建存储表单里点「浏览」时，尚未生成 storage.id，也能远程选目录。
+     *
+     * 安全：凭据随请求体传入并仅用于本次临时 rclone.conf，finally 统一清理；
+     * agent_local 加密中心无密钥，明确拒绝（与 index() 同口径）。
+     */
+    public function preview(Request $request): JsonResponse
+    {
+        if (! RcloneConfBuilder::available()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Center 后端容器内未检测到 rclone（请重建 bc-app 镜像）',
+            ]);
+        }
+
+        $data = $request->validate([
+            'type'      => ['required', Rule::in([Storage::TYPE_SFTP, Storage::TYPE_FTP, Storage::TYPE_WEBDAV, Storage::TYPE_S3])],
+            'config'    => ['required', 'array'],
+            'base_path' => ['nullable', 'string', 'max:1024'],
+            'path'      => ['nullable', 'string', 'max:4096'],
+        ]);
+
+        $type     = $data['type'];
+        $config   = $data['config'];
+        $basePath = $data['base_path'] ?? '';
+        $isS3     = $type === Storage::TYPE_S3;
+
+        // 临时 Storage（内存构造，config 走 Attribute 加解密 round-trip，不写库）
+        $storage = new Storage([
+            'type'      => $type,
+            'config'    => $config,
+            'base_path' => $basePath,
+        ]);
+
+        // 路径合法性（含 ".." 上级目录逃逸）
+        $path = ($data['path'] ?? null);
+        $path = is_string($path) ? $path : null;
+        if ($path !== null && $path !== '' && StorageBrowsePath::normalize($path, $isS3) === null) {
+            return response()->json(['message' => '路径不合法（不允许 .. 上级目录）'], 422);
+        }
+
+        // 计算初始浏览路径（path 优先 → 否则回落 base_path）
+        $path = StorageBrowsePath::resolveInitial($storage, $path, null);
+        if ($path === null) {
+            return response()->json(['message' => '路径不合法（不允许 .. 上级目录）'], 422);
+        }
+
+        // agent_local 加密：中心无密码、无法解密文件名，明确拒绝浏览
+        $enc = $config['encryption'] ?? [];
+        if (! empty($enc['enabled']) && ($enc['key_mode'] ?? 'center') === 'agent_local') {
+            return response()->json([
+                'ok'      => false,
+                'message' => '该存储启用了「Agent 本地密钥」加密，中心无法解密文件名，暂不支持浏览',
+            ]);
+        }
+
+        $tempFiles = [];
+        try {
+            // 临时 remote 名 bc_preview：build 与 target 必须一致（target 接收同名参数）
+            $r = RcloneConfBuilder::build($storage, 'bc_preview');
+            $tempFiles = array_merge($tempFiles, $r['tempFiles']);
+            if ($r['warnings'] !== []) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => implode('；', $r['warnings']),
+                ]);
+            }
+
+            $confPath = tempnam(sys_get_temp_dir(), 'preview_rcloneconf_');
+            $tempFiles[] = $confPath;
+            file_put_contents($confPath, $r['conf']);
+            chmod($confPath, 0600);
+
+            $target = StorageBrowsePath::target($storage, $path, 'bc_preview');
+            $cmd = 'rclone lsjson --config ' . escapeshellarg($confPath)
+                . ' --max-depth 1 --contimeout 10s --timeout 30s --retries 1'
+                . ' ' . escapeshellarg($target)
+                . ' 2>&1';
+            $output = [];
+            $exitCode = 0;
+            exec($cmd, $output, $exitCode);
+            if ($exitCode !== 0) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => $this->errorLine($output, $exitCode),
+                ]);
+            }
+
+            $decoded = $this->decodeLsjson($output);
+            if ($decoded === null) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => '目录列表解析失败（rclone 输出异常，请重试或检查存储连接）',
+                ]);
+            }
+            $parsed = StorageBrowsePath::parseEntries($decoded, $path, 500);
+
+            [$recursiveSize, $recursiveCount] = $this->recursiveStats($confPath, $target);
+
+            return response()->json([
+                'ok' => true,
+                'storage' => [
+                    'id'        => null,
+                    'name'      => '预览目录',
+                    'type'      => $type,
+                    'encrypted' => ! empty($enc['enabled']) && ($enc['key_mode'] ?? 'center') === 'center',
+                    'base_path' => $basePath,
+                ],
+                'path'            => $path,
+                'parent'          => StorageBrowsePath::parent($path),
+                'entries'         => $parsed['entries'],
+                'truncated'       => $parsed['truncated'],
+                'dir_count'       => $parsed['dir_count'],
+                'file_count'      => $parsed['file_count'],
+                'recursive_size'  => $recursiveSize,
+                'recursive_count' => $recursiveCount,
+            ]);
+        } finally {
             foreach ($tempFiles as $f) {
                 if ($f && file_exists($f)) {
                     @unlink($f);

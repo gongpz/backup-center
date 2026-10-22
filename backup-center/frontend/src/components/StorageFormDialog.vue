@@ -1,8 +1,9 @@
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Check, Link, Upload, Cloudy, MostlyCloudy } from '@element-plus/icons-vue'
+import { Check, Link, Upload, Cloudy, MostlyCloudy, FolderOpened } from '@element-plus/icons-vue'
 import { storagesApi } from '@/api/storages'
+import StorageBrowserDialog from '@/components/StorageBrowserDialog.vue'
 import { storageTypes, typeFields, encryptionFields, defaultEncryption, normalizeEncryption } from '@/utils/storage-types'
 
 const props = defineProps({
@@ -184,6 +185,11 @@ watch(
 
 const close = () => emit('update:modelValue', false)
 
+// 目标路径浏览：编辑态（已保存存储）方可远程浏览并直接定位到已填目录；
+// 新建态无 storageId，后端无法列目录，按钮禁用并提示保存后再浏览
+const browseOpen = ref(false)
+const onBrowseSelect = (p) => { form.base_path = p; browseOpen.value = false }
+
 const onSubmit = () => {
   formRef.value?.validate(async (valid) => {
     if (!valid) return
@@ -272,7 +278,15 @@ const onSubmit = () => {
           </el-form-item>
 
           <el-form-item label="目标路径" prop="base_path">
-            <el-input v-model="form.base_path" placeholder="备份文件的目标目录，可选（例如 /backups）" />
+            <div class="sf-path-row">
+              <el-input v-model="form.base_path" placeholder="备份文件的目标目录，可选（例如 /backups）" />
+              <el-button
+                :icon="FolderOpened"
+                :title="isEdit ? '在远程存储中浏览并选择目录（使用已保存连接）' : '在远程存储中浏览并选择目录（使用当前表单填写的连接）'"
+                @click="browseOpen = true"
+              >浏览</el-button>
+            </div>
+            <span class="sf-hint">指定后备份将写入该目录；点击「浏览」可远程选目录并直接定位到这里</span>
           </el-form-item>
 
           <el-form-item label="存储配额" prop="quota_size">
@@ -422,6 +436,16 @@ const onSubmit = () => {
         </div>
       </div>
     </el-form>
+
+    <StorageBrowserDialog
+      v-model="browseOpen"
+      :storage-id="props.storage?.id ?? null"
+      :initial-path="form.base_path"
+      :selectable="true"
+      :preview="!isEdit"
+      :preview-storage="{ type: form.type, config: { ...form.config, encryption: { ...form.encryption } }, base_path: form.base_path }"
+      @select="onBrowseSelect"
+    />
 
     <template #footer>
       <el-button @click="close">取消</el-button>
@@ -594,6 +618,9 @@ const onSubmit = () => {
   color: var(--bc-text-secondary);
   line-height: 1.6;
 }
+/* 目标路径：输入框 + 浏览按钮同行 */
+.sf-path-row { display: flex; gap: 8px; align-items: center; }
+.sf-path-row .el-input { flex: 1; min-width: 0; }
 
 /* 窄视口兜底：单列堆叠，避免右列被挤压；类型卡片过窄时改 2×2 */
 @media (max-width: 880px) {

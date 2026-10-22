@@ -94,6 +94,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('storages', StorageController::class);
     Route::post('/storages/{storage}/test', [StorageController::class, 'test']);
     Route::get('/storages/{storage}/files', [StorageFileController::class, 'index']);
+    // 未保存存储的目录预览（新建态表单浏览，按提交的 type/config/base_path 列目录）
+    Route::post('/storages/preview-files', [StorageFileController::class, 'preview']);
     Route::get('/storages-mandatory', [StorageController::class, 'mandatory']);
 
     // 资源池（COS/OSS 对象存储，用于 Agent 二进制分发 + 用户上传的静态资源）

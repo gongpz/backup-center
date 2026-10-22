@@ -23,4 +23,8 @@ export const storagesApi = {
   browseFiles(id, params = {}) {
     return http.get(`/storages/${id}/files`, { params }).then((r) => r.data)
   },
+  // 未保存（新建态）存储的目录预览：用提交的 type/config/base_path 列目录，body 含 path
+  previewFiles(payload) {
+    return http.post('/storages/preview-files', payload).then((r) => r.data)
+  },
 }

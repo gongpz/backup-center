@@ -975,6 +975,47 @@ const buildGenericTree = () => [
   demoFile('bc-system-20261013-030000.tar.gz', 18.6 * MB, hours(13)),
 ]
 
+// POST /api/storages/preview-files 演示处理器（新建态表单浏览：无 storageId，按提交快照列目录）
+function previewStorageFiles(body) {
+  const base = String(body?.base_path || '').replace(/\/+$/, '')
+  let p = String(body?.path || '')
+  if (!p) p = base
+
+  const tree = buildGenericTree()
+  const rootStat = calcRecursive(tree)
+  const index = indexTree(tree, base, {})
+  // 补上根目录节点自身（base_path 这一层，含整树递归统计）
+  index[base] = { isDir: true, children: tree, recursiveSize: rootStat.size, recursiveCount: rootStat.count }
+  const node = index[p]
+  if (!node || !node.isDir) {
+    return { ok: false, message: `目录不存在或不可浏览：${p || '/'}` }
+  }
+
+  const entries = node.children
+    .slice()
+    .sort((a, b) => (b.isDir ? 1 : 0) - (a.isDir ? 1 : 0))
+    .map((n) => ({
+      name: n.name,
+      path: `${p}/${n.name}`,
+      is_dir: n.isDir,
+      size: n.isDir ? null : n.size,
+      modified: n.mtime,
+    }))
+
+  return {
+    ok: true,
+    storage: { id: null, name: '预览目录', type: body?.type || 'sftp', encrypted: false, base_path: base },
+    path: p,
+    parent: browseParent(p),
+    entries,
+    truncated: false,
+    dir_count: entries.filter((e) => e.is_dir).length,
+    file_count: entries.filter((e) => !e.is_dir).length,
+    recursive_size: node.recursiveSize ?? null,
+    recursive_count: node.recursiveCount ?? null,
+  }
+}
+
 // GET /api/storages/{id}/files 演示处理器（契约见 .workbuddy/vps-browse-spec.md §1.5）
 function browseStorageFiles(storageId, path, websiteId) {
   const storage = findById(db.storages, storageId)
@@ -1389,6 +1430,7 @@ const routes = [
     return { ok: true, message: '连接成功（演示环境不会发起真实连接）' }
   }],
   ['get', /^\/storages\/(\d+)\/files$/, (m, p) => browseStorageFiles(Number(m[1]), p?.path || '', p?.website_id ? Number(p.website_id) : null)],
+  ['post', /^\/storages\/preview-files$/, (m, p, body) => previewStorageFiles(body)],
 
   /* ---------- 备份记录 ---------- */
   ['get', /^\/backup-logs$/, (m, p) => paginate(db.logs.filter((l) => (
