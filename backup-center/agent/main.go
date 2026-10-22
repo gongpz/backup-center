@@ -39,7 +39,11 @@ import (
 //
 //	incremental_backup 指令 + 快照恢复（path_type=dir）+ retention 目录
 //	purge（条项 is_dir）；数据库 dump 抽成 dumpDatabaseGz 与自主备份共用。
-const AgentVersion = "0.15.1"
+//
+// 0.15.2：保留期清理（cleanup_retention）的 rclone 调用加单条超时（cleanupRcloneTimeout=10m），
+//
+//	后端卡死不再永久挂起清理指令与 Agent 命令循环；超时该条按失败保留 db 行下轮重派。
+const AgentVersion = "0.15.2"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -583,6 +587,12 @@ func handleAgentCommand(cmd *client.PendingCommand, cfg *config.Config, c *clien
 // cleanupProgressInterval 保留期清理每处理多少条上报一次进度
 const cleanupProgressInterval = 20
 
+// cleanupRcloneTimeout 单条保留期清理的 rclone 调用超时。后端（SFTP/S3）响应慢、
+// 目录巨大或网络卡死时，无超时会让 rc.Run() 永久阻塞，进而挂死整个清理指令与
+// Agent 命令循环——db 行永远删不掉、反复重派又反复卡死。超时后杀掉 rclone，
+// 该条按失败处理（db 行保留待下轮重派），保证清理指令不会无限挂起。
+const cleanupRcloneTimeout = 10 * time.Minute
+
 // performRetentionCleanup 删除超期备份的云端文件（C4）。
 // params.files 为数组，元素 {log_id: number, remote_path: string, is_dir?: bool}；
 // remote_path 原样取自库里存的值（形如 bc_14:bucket/... 或加密后的 bc_14_c:...），
@@ -645,15 +655,17 @@ func performRetentionCleanup(cmd *client.PendingCommand, c *client.Client) (stri
 
 		// is_dir=true（v0.15 增量快照目录，后端按 filename 命中 -snap-<stamp> 标记）：
 		// rclone purge 递归删整个目录；缺省按普通文件 deletefile
+		// 每条调用独立上下文 + 超时：超时即杀 rclone，该条按失败处理（db 行保留重派）。
+		ctx, cancel := context.WithTimeout(context.Background(), cleanupRcloneTimeout)
 		var rc *exec.Cmd
 		if isDir, _ := entry["is_dir"].(bool); isDir {
-			rc = exec.Command("rclone", "purge",
+			rc = exec.CommandContext(ctx, "rclone", "purge",
 				"--config", rcloneConfPath,
 				"--retries", "2",
 				remotePath,
 			)
 		} else {
-			rc = exec.Command("rclone", "deletefile",
+			rc = exec.CommandContext(ctx, "rclone", "deletefile",
 				"--config", rcloneConfPath,
 				"--retries", "2",
 				remotePath,
@@ -661,15 +673,27 @@ func performRetentionCleanup(cmd *client.PendingCommand, c *client.Client) (stri
 		}
 		stderr := &strings.Builder{}
 		rc.Stderr = stderr
-		if err := rc.Run(); err == nil {
+		runErr := rc.Run()
+		timedOut := ctx.Err() == context.DeadlineExceeded // 必须在 cancel 前捕获
+		cancel()                                          // 立即释放上下文，避免泄漏
+		if runErr == nil {
 			deleted++
 		} else {
 			msg := strings.TrimSpace(stderr.String())
 			if msg == "" {
-				msg = err.Error()
+				msg = runErr.Error()
 			}
 			lower := strings.ToLower(msg)
-			if strings.Contains(lower, "not found") {
+			if timedOut {
+				// 后端卡死：无法确定是否删完，按失败保留 db 行，下轮重派。
+				failed++
+				if len(msg) > 120 {
+					msg = msg[:120] + "…"
+				}
+				failedPaths = append(failedPaths, fmt.Sprintf("%s（清理超时 %s，已中止该条：%s）", remotePath, cleanupRcloneTimeout, msg))
+				slog.Warn("保留期清理：rclone 调用超时，已中止该条",
+					"log_id", logID, "remote_path", remotePath, "timeout", cleanupRcloneTimeout)
+			} else if strings.Contains(lower, "not found") {
 				// 已删除 / 本来就不存在：算成功，保证重派幂等
 				missing++
 				slog.Info("保留期清理：云端文件已不存在，按已删除处理",
