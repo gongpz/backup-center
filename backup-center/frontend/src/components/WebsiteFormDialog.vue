@@ -93,7 +93,21 @@ const backupModeKey = computed({
   },
 })
 
-const selectMode = (key) => { backupModeKey.value = key }
+// 恢复模式 ↔ 备份模式 联动（2026-10-23 设计决策）：
+//   轻便(simple)      → 默认「轻便恢复」，锁死不可改（外部压缩产物命名不保证符合 advanced 解析）
+//   高级(advanced)    → 默认「高级恢复」，可改回「轻便恢复」
+//   增量(incremental) → 默认「高级恢复」，锁死不可改（rsync 快照天然走全量回滚）
+const restoreModeLocked = computed(() => {
+  const k = backupModeKey.value
+  return k === 'simple' || k === 'incremental'
+})
+const restoreModeDefault = computed(() => (backupModeKey.value === 'simple' ? 'lite' : 'advanced'))
+
+const selectMode = (key) => {
+  backupModeKey.value = key
+  // 切换备份模式时按规则重置恢复模式默认值
+  form.restore_mode = restoreModeDefault.value
+}
 
 const rules = {
   server_id: [{ required: true, message: '请选择所属服务器', trigger: 'change' }],
@@ -206,6 +220,10 @@ watch(
           db_password: '', // 密码永不回填明文
         })
       }
+      // 锁定场景（轻便/增量）按规则强制恢复模式，避免沿用旧值（如旧站曾设 advanced）
+      if (restoreModeLocked.value) {
+        form.restore_mode = restoreModeDefault.value
+      }
       loadServers()
       loadStorages()
     }
@@ -237,6 +255,11 @@ const onSubmit = () => {
     if (form.backup_mode === 'incremental' && !form.incremental_storage_id) {
       ElMessage.warning('请选择增量备份目标存储')
       return
+    }
+
+    // 锁定场景（轻便/增量）按规则强制恢复模式，确保存储值符合联动规则
+    if (restoreModeLocked.value) {
+      form.restore_mode = restoreModeDefault.value
     }
 
     saving.value = true
@@ -385,10 +408,24 @@ const onSubmit = () => {
           </el-form-item>
 
           <el-form-item label="恢复模式" prop="restore_mode">
-            <el-radio-group v-model="form.restore_mode">
+            <el-radio-group v-model="form.restore_mode" :disabled="restoreModeLocked">
               <el-radio value="lite">轻便恢复</el-radio>
               <el-radio value="advanced">高级恢复</el-radio>
             </el-radio-group>
+            <div class="wf-stack" style="margin-top: 6px">
+              <span v-if="restoreModeLocked && backupModeKey === 'simple'" class="mp-hint">
+                已锁定为「轻便恢复」：轻便模式仅监控服务器已有备份产物，恢复只下载到临时目录、需手动处理，不可更改。
+              </span>
+              <span v-else-if="restoreModeLocked && backupModeKey === 'incremental'" class="mp-hint">
+                已锁定为「高级恢复」：增量模式为 rsync 快照，恢复将自动覆盖网站目录并重建数据库，不可更改。
+              </span>
+              <span v-else class="mp-hint">
+                高级模式默认「高级恢复」，可改回「轻便恢复」。
+              </span>
+              <span class="mp-hint mp-hint-warn">
+                注：选用「高级恢复」须先在本站「绑定网站目录」并填写数据库连接，否则恢复将直接失败。
+              </span>
+            </div>
           </el-form-item>
 
           <el-form-item label="状态" prop="status">
