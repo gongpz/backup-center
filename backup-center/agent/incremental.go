@@ -112,6 +112,15 @@ func performIncrementalBackup(cmd *client.PendingCommand, c *client.Client, up *
 	remoteSnapDir := remoteSiteDir + "/" + stamp
 	remote := fmt.Sprintf("bc_%d:", w.IncrementalStorageID)
 
+	// 预建远端站点根目录（首次备份兜底）：rsync 不会创建 destination 的父级目录
+	// （未用 --mkpath），远端 base_path 或站点目录缺失时 mkdir ENOENT、首次备份
+	// 必败（实测：base_path 为空且 /<site> 不存在 → rsync code 11）。rclone mkdir
+	// 幂等（目录已存在时无操作且成功），sftp 后端会连带创建缺失的父级。失败仅
+	// 告警不阻断：让 rsync 保持成败的唯一裁决者，告警保留 rclone 侧细节供排查。
+	if out, merr := exec.Command("rclone", "mkdir", "--config", rcloneConfPath, remote+remoteSiteDir).CombinedOutput(); merr != nil {
+		slog.Warn("预建远端站点目录失败（继续尝试 rsync）", "remote", remote+remoteSiteDir, "err", merr, "out", strings.TrimSpace(string(out)))
+	}
+
 	// 上一个快照：站点目录下字典序最大的 YYYYMMDD-HHMMSS。
 	// lsf 失败（首跑目录不存在 / 网络抖动）退化为全量（prev=""），安全优先——
 	// link-dest 指向错误位置会让 rsync 静默重传甚至数据错乱，宁可多传。

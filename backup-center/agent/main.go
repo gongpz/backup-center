@@ -39,7 +39,7 @@ import (
 //
 //	incremental_backup 指令 + 快照恢复（path_type=dir）+ retention 目录
 //	purge（条项 is_dir）；数据库 dump 抽成 dumpDatabaseGz 与自主备份共用。
-const AgentVersion = "0.15.0"
+const AgentVersion = "0.15.1"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
