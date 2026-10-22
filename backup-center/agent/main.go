@@ -52,7 +52,7 @@ import (
 //	并在解压前 chattr -i 解除 .user.ini 等不可变文件属性（宝塔等面板会加
 //	chattr +i，tar 覆盖写会 EPERM "Operation not permitted"），解压后按原样
 //	chattr +i 恢复。恢复结果上报不再静默吞错，失败原因截断到 1800 字符。
-const AgentVersion = "0.15.3"
+const AgentVersion = "0.15.4"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -914,10 +914,12 @@ func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w c
 		Output:    "[解压] 正在覆盖网站根目录…",
 	})
 	// 覆盖解压前先解除 web_root 下所有 immutable（chattr +i）属性：宝塔等面板会给
-	// .user.ini 打 +i，tar 覆盖写该文件会 EPERM(Operation not permitted) 导致整包失败。
+	// .user.ini 打 +i，tar 覆盖写该文件会 EPERM(Operation not permitted) 或
+	// EEXIST(File exists) 导致整包失败。
 	// 解压成功后再按原样 chattr +i 恢复回去（失败则保持解除状态，让提示里的手动回滚
 	// tar -xzf 能正常覆盖 .user.ini）。
-	immutablePaths := listImmutablePaths(filepath.Join(parent, base))
+	absRoot := filepath.Join(parent, base)
+	immutablePaths := listImmutablePaths(absRoot)
 	if len(immutablePaths) > 0 {
 		slog.Info("解除 immutable 属性以允许覆盖解压", "count", len(immutablePaths), "id", cmd.ID)
 		for _, p := range immutablePaths {
@@ -927,11 +929,25 @@ func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w c
 
 	// 不能用 --unlink-first：-U 会对每一个目录也尝试 unlink，而非空目录无法 unlink →
 	// "Cannot unlink: Directory not empty"，tar 以 exit 2 失败。普通 tar 覆盖解压本身
-	// 就能覆盖同名文件/目录，.user.ini 的写权限问题已由上面的 chattr 解除解决。
+	// 就能覆盖同名文件/目录。
 	xc := exec.Command("tar", "-xzf", dest, "-C", parent)
 	var xerr strings.Builder
 	xc.Stderr = &xerr
 	if err := xc.Run(); err != nil {
+		// 兜底：属性探测可能因竞态（解压过程中面板又给文件打 +i）或探测盲区漏掉个别
+		// immutable 条目。此时对整棵树强制 chattr -R -i 后重试一次，仍失败才报错。
+		if isImmutableOverwriteErr(xerr.String()) {
+			slog.Info("解压疑似被 immutable 阻断，整树强制解除后重试", "err", err, "id", cmd.ID)
+			chattrRecursive(absRoot, false)
+			var rerr strings.Builder
+			rxc := exec.Command("tar", "-xzf", dest, "-C", parent)
+			rxc.Stderr = &rerr
+			if rerr2 := rxc.Run(); rerr2 != nil {
+				return bakPath, fmt.Errorf("网站目录解压覆盖失败: %v (%s)；可手动回滚: tar -xzf %s -C %s",
+					rerr2, strings.TrimSpace(rerr.String()), bakPath, parent)
+			}
+			return bakPath, nil
+		}
 		return bakPath, fmt.Errorf("网站目录解压覆盖失败: %v (%s)；可手动回滚: tar -xzf %s -C %s", err, strings.TrimSpace(xerr.String()), bakPath, parent)
 	}
 	// 解压成功：把之前解除的 immutable 属性按原样恢复回去
@@ -941,10 +957,33 @@ func performAdvancedWebRestore(cmd *client.PendingCommand, c *client.Client, w c
 	return bakPath, nil
 }
 
+// isImmutableOverwriteErr 判断 tar 解压报错是否由 immutable（+i）属性导致。
+func isImmutableOverwriteErr(stderr string) bool {
+	return strings.Contains(stderr, "Operation not permitted") ||
+		strings.Contains(stderr, "File exists")
+}
+
+// chattrRecursive 对 root 整棵树递归设置(+i)/取消(-i) immutable。失败一律忽略。
+func chattrRecursive(root string, immutable bool) {
+	flag := "-i"
+	if immutable {
+		flag = "+i"
+	}
+	cmd := exec.Command("chattr", flag, "-R", root)
+	_ = cmd.Run()
+}
+
 // listImmutablePaths 列出 root 下所有带 immutable（不可变）属性的路径（文件/目录）。
-// 用 lsattr -R 扫描，输出形如 "----i---------e------- /abs/path"；属性串含 i（文件）
-// 或 I（目录，即 lsattr 对 immutable 目录的显示形式）即为不可变。lsattr 的 -R 输出
-// 路径是「入参 + 相对子路径」，入参为绝对路径时输出的也是绝对路径。
+// 输出形如"----i---------e------- /abs/path"；属性串含 i（文件）或 I（目录，
+// 即 lsattr 对 immutable 目录的显示形式）即为不可变。
+//
+// 这里必须用 "find <root> -exec lsattr -d -- {} +"，不能用 "lsattr -R <root>"：
+// lsattr 的 -R 递归输出不包含点文件（宝塔防跨站攻击用的 .user.ini 恰好是点文件，
+// 实测 lsattr -R 输出 480 行里 grep -c 'user\.ini' = 0），会导致关键文件漏检、
+// tar 覆盖时以 "Cannot open: File exists" 失败。find 枚举本身包含点文件。
+// find 的深度优先顺序保证父目录行先于子项出现。
+//
+// find 不可用/输出为空时回退 lsattr -R（不覆盖点文件，但优于完全不探测）。
 // 任何异常（lsattr 不存在、文件系统不支持属性、部分条目无权限等）都忽略：只返回已解析
 // 到的部分，绝不因为属性探测失败而让恢复流程失败。
 func listImmutablePaths(root string) []string {
@@ -952,12 +991,20 @@ func listImmutablePaths(root string) []string {
 	if err != nil {
 		abs = root
 	}
-	cmd := exec.Command("lsattr", "-R", abs)
-	var out strings.Builder
-	cmd.Stdout = &out
-	// stderr 丢弃并忽略退出码：lsattr 可能因个别条目无权限返回非 0，但有效输出仍可用
+	out := runCombinedOutput("find", abs, "-exec", "lsattr", "-d", "--", "{}", "+")
+	if strings.TrimSpace(out) == "" {
+		out = runCombinedOutput("lsattr", "-R", abs)
+	}
+	return parseImmutablePaths(out, abs)
+}
+
+// runCombinedOutput 执行命令并返回 stdout；stderr 丢弃、退出码忽略。
+func runCombinedOutput(name string, args ...string) string {
+	cmd := exec.Command(name, args...)
+	var b strings.Builder
+	cmd.Stdout = &b
 	_ = cmd.Run()
-	return parseImmutablePaths(out.String(), abs)
+	return b.String()
 }
 
 // parseImmutablePaths 从 lsattr -R 的输出中解析出所有带 immutable 属性的路径。
