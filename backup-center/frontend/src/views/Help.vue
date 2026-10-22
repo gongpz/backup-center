@@ -505,10 +505,18 @@ cat /etc/backup-agent/config.json</pre>
       <!-- ============ 版本特性 ============ -->
       <el-tab-pane label="版本特性" name="whatsnew">
         <div class="tab-intro">
-          当前版本 <b>v1.2.22</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
+          当前版本 <b>v1.2.23</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
         </div>
 
         <el-collapse>
+          <el-collapse-item name="restore-mode-coupling" title="恢复模式与备份模式联动锁定（v1.2.23 · 需 Agent v0.15.4+）">
+            <p class="intro">
+              编辑网站时，左侧「恢复模式」不再自由独立设定，而是与右侧备份模式<b>联动</b>：选<b>轻便</b>备份→锁定「轻便恢复」不可更改（外部压缩产物命名不保证符合 advanced 解析）；选<b>高级</b>备份→默认「高级恢复」，可改回轻便；选<b>增量</b>备份→锁定「高级恢复」不可更改（rsync 快照天然走全量回滚）。下方按场景显示说明，并提示「高级恢复须先绑定网站目录并填写数据库连接，否则恢复将直接失败」。
+              <br /><br />
+              Agent v0.15.4 修复了高级恢复「网站目录」解压必然失败的根因：原先用 <code>lsattr -R</code> 探测 immutable 文件会漏掉点文件（宝塔的 <code>.user.ini</code> 恰好是点文件），导致 <code>chattr +i</code> 未被解除、tar 覆盖写失败；现改为 <code>find + lsattr</code> 枚举并新增整树强制解除兜底重试。v0.15.3 还去掉了会令非空目录 unlink 失败的 <code>--unlink-first</code>，并修复了恢复失败结果被吞、Center 侧指令永久 <code>dispatched</code> 的问题。
+            </p>
+          </el-collapse-item>
+
           <el-collapse-item name="storage-browse-retention" title="存储远端浏览 · 保留期清理加固（v1.2.22 · 需 Agent v0.15.2+）">
             <p class="intro">
               存储表单（SSH / SFTP）新增<b>「浏览」按钮</b>：新增或编辑存储时即可连接远端预览目录树，直接点选回填目标路径，不必先保存再反复试错。网站页「浏览备份」同步修正了初始路径拼接与 Agent 端不一致的问题——此前会拼成 home 相对路径，导致增量备份后误报「目录不存在」，现已与 Agent 的快照根布局对齐。
