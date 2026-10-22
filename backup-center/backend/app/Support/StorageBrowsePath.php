@@ -64,13 +64,17 @@ class StorageBrowsePath
         }
 
         // 带了 website_id 且该站的增量备份目标正是当前存储：直达快照根
-        // <base_path>/<站点目录名>（增量快照布局见 incremental.go:111-112）
+        // <base_path>/<站点目录名>（增量快照布局见 incremental.go:111-112）。
+        // 拼接必须与 Go 端 trimTrailingSlash(base_path) + "/" + site 逐字一致：
+        // base_path 为空时 Go 产出 "/<site>"（前导斜杠，SFTP 绝对路径语义），
+        // 这里不能因 base 为空而丢掉斜杠——否则 SFTP 会解析成用户 home 下的
+        // 相对路径（/root/<site>），列表报 directory not found。
         if ($websiteId !== null && $websiteId > 0) {
             $website = Website::find($websiteId);
             if ($website !== null && (int) $website->incremental_storage_id === (int) $storage->id) {
                 $base = rtrim((string) $storage->base_path, '/');
                 $site = self::sanitizeSegment((string) $website->name);
-                return self::normalize($base !== '' ? $base . '/' . $site : $site, $isS3);
+                return self::normalize($base . '/' . $site, $isS3);
             }
         }
 
