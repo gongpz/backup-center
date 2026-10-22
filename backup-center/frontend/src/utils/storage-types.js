@@ -61,11 +61,11 @@ export const normalizeEncryption = (enc) => ({
  */
 export const typeFields = {
   sftp: [
-    { key: 'host',        label: '主机', type: 'text',     required: true, placeholder: 'u12345.your-storagebox.de' },
-    // row 相同的连续字段在表单里合并为一行（用户名在前、端口在后）
-    { key: 'user',        label: '用户名', type: 'text',   required: true, placeholder: 'u12345', row: 'user-port' },
-    { key: 'port',        label: '端口', type: 'number',   required: false, default: 22, placeholder: '22 (HostBrr: 23)', row: 'user-port' },
-    { key: 'password',    label: '密码', type: 'password', required: false, placeholder: '密码或 SSH 私钥二选一' },
+    { key: 'host',        label: '主机', type: 'text',     required: true, placeholder: 'u12345.your-storagebox.de', row: 'host-port' },
+    // row 相同的连续字段在表单里合并为一行：主机+端口（连接）、用户名+密码（凭据）
+    { key: 'port',        label: '端口', type: 'number',   required: false, default: 22, placeholder: '22 (HostBrr: 23)', row: 'host-port' },
+    { key: 'user',        label: '用户名', type: 'text',   required: true, placeholder: 'u12345', row: 'user-password' },
+    { key: 'password',    label: '密码', type: 'password', required: false, placeholder: '密码或 SSH 私钥二选一', row: 'user-password' },
     { key: 'private_key', label: 'SSH 私钥', type: 'textarea', required: false, placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----' },
   ],
   ftp: [

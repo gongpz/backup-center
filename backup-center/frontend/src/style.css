@@ -535,9 +535,9 @@ a { color: inherit; text-decoration: none; }
   --el-input-bg-color: var(--bc-bg-card);
   --el-input-border-color: var(--bc-border);
   --el-input-hover-border-color: var(--bc-border-strong);
-  /* 聚焦环用中性灰：EP 的 is-focus 是 box-shadow 0 0 0 1px <此变量> inset，
-     此前跟随主色（蓝）被反馈"太丑"——保留可感知的聚焦提示，但不带彩色 */
-  --el-input-focus-border-color: rgba(16, 24, 40, .32);
+  /* 聚焦环整体去掉：EP 的 is-focus 是 box-shadow 0 0 0 1px <此变量> inset，
+     用户明确要求输入时不再显示该提示框（此前主色蓝、后改中性灰均被否）——transparent 后不可见 */
+  --el-input-focus-border-color: transparent;
   --el-input-text-color: var(--bc-text-regular);
   --el-input-placeholder-color: var(--bc-text-placeholder);
   --el-input-border-radius: var(--bc-radius);
