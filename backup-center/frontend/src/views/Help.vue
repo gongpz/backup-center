@@ -505,10 +505,18 @@ cat /etc/backup-agent/config.json</pre>
       <!-- ============ 版本特性 ============ -->
       <el-tab-pane label="版本特性" name="whatsnew">
         <div class="tab-intro">
-          当前版本 <b>v1.2.21</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
+          当前版本 <b>v1.2.22</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
         </div>
 
         <el-collapse>
+          <el-collapse-item name="storage-browse-retention" title="存储远端浏览 · 保留期清理加固（v1.2.22 · 需 Agent v0.15.2+）">
+            <p class="intro">
+              存储表单（SSH / SFTP）新增<b>「浏览」按钮</b>：新增或编辑存储时即可连接远端预览目录树，直接点选回填目标路径，不必先保存再反复试错。网站页「浏览备份」同步修正了初始路径拼接与 Agent 端不一致的问题——此前会拼成 home 相对路径，导致增量备份后误报「目录不存在」，现已与 Agent 的快照根布局对齐。
+              <br /><br />
+              Agent 侧两项加固：<b>增量备份前自动预建目标目录</b>（首次备份到一个全新的 base 路径，不再因父目录不存在而必失败）；<b>保留期清理加超时保护</b>——单条 rclone 删除超过 10 分钟即中止，该条按失败处理并保留数据库记录待下轮重派，避免后端卡死时清理指令永久挂起、堵住 Agent 命令循环。
+            </p>
+          </el-collapse-item>
+
           <el-collapse-item name="focus-polish" title="输入框聚焦与配对细化（v1.2.21）">
             <p class="intro">
               输入框、多行框与下拉框聚焦时不再出现彩色聚焦框——原先的主色描边与焦点环已整体移除，聚焦后保持与默认一致的 1px 描边，不变色、不加粗，输入位置由光标本身指示；必填校验的红色错误描边保留。
