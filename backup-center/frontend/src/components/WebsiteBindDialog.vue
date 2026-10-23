@@ -179,9 +179,6 @@ const close = () => emit('update:modelValue', false)
             <span class="key-alt-label">也可以在服务器上直接生成：</span>
             <code class="mono">cd 网站根目录 &amp;&amp; echo '{{ website.bind_token }}' &gt; {{ keyFileName }}</code>
           </div>
-          <p class="step-warn">
-            注意：部分工具（如 Windows 下载后经宝塔在线上传）会去掉文件名开头的小点或自动补上 <span class="mono">.txt</span>，导致名称不符。服务器上的最终文件名必须与上方完全一致——<b>以点开头、无扩展名</b>。拿不准时，建议直接用上面的命令在服务器上生成。
-          </p>
         </div>
 
         <!-- 第二步：定位方式 -->
@@ -312,17 +309,6 @@ const close = () => emit('update:modelValue', false)
 .bases-input :deep(.el-textarea__inner),
 .direct-input :deep(.el-input__inner) { font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; font-size: 12px; }
 
-.step-warn {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--bc-warning);
-  background: var(--bc-warning-bg);
-  border: 1px solid var(--bc-warning-border);
-  border-radius: 8px;
-  padding: 8px 10px;
-}
-.step-warn b { font-weight: 600; }
 .bs-reason {
   font-size: 12px;
   color: var(--bc-danger);

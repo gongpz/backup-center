@@ -414,16 +414,21 @@ const onSubmit = () => {
             </el-radio-group>
             <div class="wf-stack" style="margin-top: 6px">
               <span v-if="restoreModeLocked && backupModeKey === 'simple'" class="mp-hint">
-                已锁定为「轻便恢复」：轻便模式仅监控服务器已有备份产物，恢复只下载到临时目录、需手动处理，不可更改。
+                已锁定轻便恢复：轻便模式仅监控服务器已有备份产物，恢复只下载到临时目录、需手动处理，不可更改。
               </span>
-              <span v-else-if="restoreModeLocked && backupModeKey === 'incremental'" class="mp-hint">
-                已锁定为「高级恢复」：增量模式为 rsync 快照，恢复将自动覆盖网站目录并重建数据库，不可更改。
+              <template v-else-if="restoreModeLocked && backupModeKey === 'incremental'">
+                <span class="mp-hint">
+                  已锁定高级恢复：增量模式为 rsync 快照，恢复将自动覆盖网站目录并重建数据库，不可更改。
+                </span>
+                <span class="mp-hint mp-hint-warn">
+                  注：高级恢复须先在本站「绑定网站目录」并填写数据库连接，否则恢复将直接失败。
+                </span>
+              </template>
+              <span v-else-if="restoreModeLocked" class="mp-hint">
+                已锁定轻便恢复：恢复只下载到临时目录、需手动处理，不可更改。
               </span>
               <span v-else class="mp-hint">
-                高级模式默认「高级恢复」，可改回「轻便恢复」。
-              </span>
-              <span class="mp-hint mp-hint-warn">
-                注：选用「高级恢复」须先在本站「绑定网站目录」并填写数据库连接，否则恢复将直接失败。
+                高级模式默认「高级恢复」，可改回「轻便恢复」。选用「高级恢复」须先在本站「绑定网站目录」并填写数据库连接，否则恢复将直接失败。
               </span>
             </div>
           </el-form-item>
@@ -538,12 +543,6 @@ const onSubmit = () => {
                   </p>
                 </div>
               </div>
-
-              <div class="mp-block">
-                <div class="mp-label">附加备份目录 <em class="mp-opt">选填</em></div>
-                <BackupPathsEditor v-model="form.backup_paths" />
-                <p class="mp-hint">除网站根目录外，额外需要 Agent 扫描同步的目录；留空表示仅处理网站根目录。</p>
-              </div>
             </template>
 
             <!-- 增量模式：rsync 硬链快照（self + incremental），需绑定根目录 -->
@@ -608,12 +607,6 @@ const onSubmit = () => {
                 <p class="mp-hint">
                   rsync 硬链快照到 VPS，仅传输变化部分。需要目标存储为 SFTP + SSH 私钥且未加密，服务器已安装 rsync / ssh。
                 </p>
-              </div>
-
-              <div class="mp-block">
-                <div class="mp-label">附加备份目录 <em class="mp-opt">选填</em></div>
-                <BackupPathsEditor v-model="form.backup_paths" />
-                <p class="mp-hint">除网站根目录外，额外需要 Agent 扫描同步的目录；留空表示仅处理网站根目录。</p>
               </div>
             </template>
           </div>
