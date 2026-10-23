@@ -505,10 +505,18 @@ cat /etc/backup-agent/config.json</pre>
       <!-- ============ 版本特性 ============ -->
       <el-tab-pane label="版本特性" name="whatsnew">
         <div class="tab-intro">
-          当前版本 <b>v1.2.24</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
+          当前版本 <b>v1.2.25</b> 的核心特性导览，含 v1.2.17 引入的增量备份体系。
         </div>
 
         <el-collapse>
+          <el-collapse-item name="db-cfg-single-row" title="数据库配置改为单行布局（v1.2.25）">
+            <p class="intro">
+              「添加 / 编辑网站」弹窗中，高级模式与增量模式的<b>数据库配置</b>区现为整齐的两行：第一行是<b>类型 + 主机 + 端口</b>，第二行是<b>数据库名 + 用户名 + 密码</b>。
+              <br /><br />
+              此前三项曾因固定宽度超出面板而被挤成两行（密码单独掉到第三行），现改为弹性宽度按比例分配（数据库名 1.2 / 用户名 0.9 / 密码 1.4）并禁止换行——无论弹窗宽度如何变化，三项始终保持同一行，且始终填满整行不留空隙。
+            </p>
+          </el-collapse-item>
+
           <el-collapse-item name="restore-coupling-polish" title="恢复模式联动文案优化 · 高级/增量隐藏附加备份目录（v1.2.24）">
             <p class="intro">
               在 v1.2.23 恢复模式联动锁定的基础上做了两处界面收敛：<br /><br />
