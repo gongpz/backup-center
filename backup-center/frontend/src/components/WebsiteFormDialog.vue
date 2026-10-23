@@ -514,7 +514,7 @@ const onSubmit = () => {
                 <el-icon class="mp-notice-icon"><Key /></el-icon>
                 <div class="mp-notice-body">
                   <b>需要绑定网站根目录</b>
-                  <p>保存后在网站列表点击「绑定」，由 Agent 查找并写入网站根目录；自主压缩将直接打包根目录与数据库。</p>
+                  <p>点击「绑定」后，由 Agent 查找并写入网站根目录；自主压缩将直接打包根目录与数据库。</p>
                   <p v-if="isEdit && props.website?.web_root" class="mp-notice-ok">
                     已绑定：<code>{{ props.website.web_root }}</code>
                     <span v-if="props.website.root_bound_at">（{{ new Date(props.website.root_bound_at).toLocaleString() }}）</span>
@@ -551,7 +551,7 @@ const onSubmit = () => {
                 <el-icon class="mp-notice-icon"><Key /></el-icon>
                 <div class="mp-notice-body">
                   <b>需要绑定网站根目录</b>
-                  <p>保存后在网站列表点击「绑定」，由 Agent 查找并写入网站根目录；rsync 将以根目录为源做硬链快照。</p>
+                  <p>点击「绑定」后，由 Agent 查找并写入网站根目录；rsync 将以根目录为源做硬链快照。</p>
                   <p v-if="isEdit && props.website?.web_root" class="mp-notice-ok">
                     已绑定：<code>{{ props.website.web_root }}</code>
                     <span v-if="props.website.root_bound_at">（{{ new Date(props.website.root_bound_at).toLocaleString() }}）</span>
@@ -605,7 +605,7 @@ const onSubmit = () => {
                   请先创建 SFTP 类型、配置 SSH 私钥、未开启加密的存储（VPS）
                 </p>
                 <p class="mp-hint">
-                  rsync 硬链快照到 VPS，仅传输变化部分。需要目标存储为 SFTP + SSH 私钥且未加密，服务器已安装 rsync / ssh。
+                  需要目标存储为 SFTP + SSH 私钥且未加密，服务器已安装 rsync / ssh。
                 </p>
               </div>
             </template>
