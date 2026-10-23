@@ -1108,7 +1108,7 @@ const routes = [
   ['get', /^\/agent-latest-version$/, () => ({ latest_version: db.latestAgentVersion, version: db.latestAgentVersion })],
   // 系统版本（对齐后端 VersionController：真实部署取构建时写入的 backend/VERSION，
   // 演示模式无该文件，直接返回当前发版号；不覆盖的话兜底返回 {data:[]}，设置页/页脚显示「—」）
-  ['get', /^\/version$/, () => ({ version: 'v1.2.23', commit_short: 'ce33269', channel: 'demo' })],
+  ['get', /^\/version$/, () => ({ version: 'v1.2.24', commit_short: 'c8b2ba5', channel: 'demo' })],
   ['get', /^\/servers$/, (m, p) => paginate(db.servers.filter((s) => (
     (!p.status || s.status === p.status)
     && (!p.connect_type || s.connect_type === p.connect_type)
