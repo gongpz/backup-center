@@ -533,10 +533,10 @@ const onSubmit = () => {
                     <el-input v-model="form.db_host" placeholder="主机" style="width: 160px" />
                     <el-input v-model.number="form.db_port" placeholder="端口" style="width: 110px" />
                   </div>
-                  <div class="db-cfg-row">
-                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 190px" />
-                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 150px" />
-                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 200px" />
+                  <div class="db-cfg-row db-cfg-nowrap">
+                    <el-input v-model="form.db_name" placeholder="数据库名" style="flex: 1.2; min-width: 0" />
+                    <el-input v-model="form.db_user" placeholder="用户名" style="flex: 0.9; min-width: 0" />
+                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="flex: 1.4; min-width: 0" />
                   </div>
                   <p class="mp-hint">
                     仅用于 Agent 在服务器上执行 <code>mysqldump</code> / <code>pg_dump</code>；密码经加密存储，列表与接口均不回传明文。
@@ -570,10 +570,10 @@ const onSubmit = () => {
                     <el-input v-model="form.db_host" placeholder="主机" style="width: 160px" />
                     <el-input v-model.number="form.db_port" placeholder="端口" style="width: 110px" />
                   </div>
-                  <div class="db-cfg-row">
-                    <el-input v-model="form.db_name" placeholder="数据库名" style="width: 190px" />
-                    <el-input v-model="form.db_user" placeholder="用户名" style="width: 150px" />
-                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="width: 200px" />
+                  <div class="db-cfg-row db-cfg-nowrap">
+                    <el-input v-model="form.db_name" placeholder="数据库名" style="flex: 1.2; min-width: 0" />
+                    <el-input v-model="form.db_user" placeholder="用户名" style="flex: 0.9; min-width: 0" />
+                    <el-input v-model="form.db_password" type="password" show-password placeholder="密码（留空表示不修改）" style="flex: 1.4; min-width: 0" />
                   </div>
                   <p class="mp-hint">
                     增量快照只传文件变化部分；数据库仍每次全量导出并随快照存档。
@@ -838,6 +838,7 @@ const onSubmit = () => {
 
 .db-cfg { width: 100%; display: flex; flex-direction: column; gap: 10px; }
 .db-cfg-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.db-cfg-nowrap { flex-wrap: nowrap; }
 /* 强制备份提示区：标题与存储标签同一行（窄视口允许换行） */
 .mandatory-notice {
   background: var(--bc-danger-bg);
